@@ -3,14 +3,14 @@ const fs = require("node:fs");
 function replaceBlock(file, startMarker, endMarker, replacement, patchedMarker) {
   const source = fs.readFileSync(file, "utf8");
   if (source.includes(patchedMarker)) {
-    console.log(`Already patched: ${file}`);
+    console.log(`Already patched: ${file} (${patchedMarker})`);
     return;
   }
 
   const start = source.indexOf(startMarker);
   const end = source.indexOf(endMarker, start);
   if (start < 0 || end < 0 || end <= start) {
-    throw new Error(`Could not locate patch area in ${file}`);
+    throw new Error(`Could not locate patch area in ${file}: ${startMarker}`);
   }
 
   const backup = `${file}.before-effort-workaround.bak`;
@@ -18,7 +18,7 @@ function replaceBlock(file, startMarker, endMarker, replacement, patchedMarker) 
 
   const patched = source.slice(0, start) + replacement + source.slice(end);
   fs.writeFileSync(file, patched, "utf8");
-  console.log(`Patched: ${file}`);
+  console.log(`Patched: ${file} (${patchedMarker})`);
 }
 
 replaceBlock(
@@ -33,6 +33,24 @@ replaceBlock(
 
 `,
   "Temporary workaround for ChatGPT's August 2026 effort-selector UI change",
+);
+
+replaceBlock(
+  "launcher/electron/browser-host.cjs",
+  "    let proAvailable;\n    if (detectPro) {",
+  "    if (startedIdle) await this.returnToIdle();",
+  `    let proAvailable;
+    if (detectPro) {
+      // Temporary workaround: capability detection previously opened the obsolete
+      // effort menu at item index 0. The current verified account is Plus, so do not
+      // expose Pro-only models until upstream supports the new selector UI.
+      proAvailable = false;
+      this.logger.info("browser.pro_detection_bypassed", {
+        reason: "ChatGPT effort selector UI changed",
+      });
+    }
+`,
+  "browser.pro_detection_bypassed",
 );
 
 replaceBlock(
@@ -61,3 +79,4 @@ replaceBlock(
 console.log("");
 console.log("Effort UI workaround applied.");
 console.log("Use ChatGPT Web — High and manually select High in the embedded ChatGPT UI.");
+console.log("Pro capability detection is temporarily disabled for the verified Plus account.");
