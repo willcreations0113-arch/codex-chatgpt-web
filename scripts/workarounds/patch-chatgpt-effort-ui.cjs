@@ -1,5 +1,10 @@
 const fs = require("node:fs");
 
+function backupOnce(file) {
+  const backup = `${file}.before-effort-workaround.bak`;
+  if (!fs.existsSync(backup)) fs.copyFileSync(file, backup);
+}
+
 function replaceBlock(file, startMarker, endMarker, replacement, patchedMarker) {
   const source = fs.readFileSync(file, "utf8");
   if (source.includes(patchedMarker)) {
@@ -13,10 +18,25 @@ function replaceBlock(file, startMarker, endMarker, replacement, patchedMarker) 
     throw new Error(`Could not locate patch area in ${file}: ${startMarker}`);
   }
 
-  const backup = `${file}.before-effort-workaround.bak`;
-  if (!fs.existsSync(backup)) fs.copyFileSync(file, backup);
-
+  backupOnce(file);
   const patched = source.slice(0, start) + replacement + source.slice(end);
+  fs.writeFileSync(file, patched, "utf8");
+  console.log(`Patched: ${file} (${patchedMarker})`);
+}
+
+function replaceRegex(file, pattern, replacement, patchedMarker) {
+  const source = fs.readFileSync(file, "utf8");
+  if (source.includes(patchedMarker)) {
+    console.log(`Already patched: ${file} (${patchedMarker})`);
+    return;
+  }
+
+  if (!pattern.test(source)) {
+    throw new Error(`Could not locate regex patch area in ${file}: ${patchedMarker}`);
+  }
+
+  backupOnce(file);
+  const patched = source.replace(pattern, replacement);
   fs.writeFileSync(file, patched, "utf8");
   console.log(`Patched: ${file} (${patchedMarker})`);
 }
@@ -35,10 +55,9 @@ replaceBlock(
   "Temporary workaround for ChatGPT's August 2026 effort-selector UI change",
 );
 
-replaceBlock(
+replaceRegex(
   "launcher/electron/browser-host.cjs",
-  "    let proAvailable;\n    if (detectPro) {",
-  "    if (startedIdle) await this.returnToIdle();",
+  /    let proAvailable;\r?\n    if \(detectPro\) \{[\s\S]*?\r?\n    \}\r?\n(?=    if \(startedIdle\) await this\.returnToIdle\(\);)/,
   `    let proAvailable;
     if (detectPro) {
       // Temporary workaround: capability detection previously opened the obsolete
