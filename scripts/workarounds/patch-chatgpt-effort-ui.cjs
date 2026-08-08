@@ -72,6 +72,22 @@ replaceRegex(
   "browser.pro_detection_bypassed",
 );
 
+replaceRegex(
+  "launcher/electron/browser-host.cjs",
+  /    if \(!isTemporaryChatUrl\(initialUrl\)\) await this\.view\.webContents\.loadURL\(TEMPORARY_CHAT_URL\);/,
+  `    if (!isTemporaryChatUrl(initialUrl)) {
+      try {
+        await this.view.webContents.loadURL(TEMPORARY_CHAT_URL);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const currentUrl = this.view.webContents.getURL();
+        if (!/ERR_ABORTED/.test(message) || !isTemporaryChatUrl(currentUrl)) throw error;
+        this.logger.info("browser.temporary_chat_navigation_superseded", { currentUrl });
+      }
+    }`,
+  "browser.temporary_chat_navigation_superseded",
+);
+
 replaceBlock(
   "src/adapters/chatgpt-web/browser-worker.ts",
   "  private async selectModelAndEffort(",
@@ -95,7 +111,62 @@ replaceBlock(
   "effort-selection-bypassed",
 );
 
+{
+  const file = "src/adapters/chatgpt-web/browser-worker.ts";
+  let source = fs.readFileSync(file, "utf8");
+  const marker = "temporary-chat-navigation-superseded";
+  if (source.includes(marker)) {
+    console.log(`Already patched: ${file} (${marker})`);
+  } else {
+    const simpleGoto = 'await page.goto(CHATGPT_TEMPORARY_CHAT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });';
+    const chainedGoto = 'page.goto(CHATGPT_TEMPORARY_CHAT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 }).then(() => undefined)';
+    const simpleCount = source.split(simpleGoto).length - 1;
+    const chainedCount = source.split(chainedGoto).length - 1;
+    if (simpleCount !== 1 || chainedCount !== 1) {
+      throw new Error(`Unexpected Temporary Chat goto count (simple=${simpleCount}, chained=${chainedCount})`);
+    }
+
+    source = source.replace(simpleGoto, 'await gotoTemporaryChatToleratingSupersededNavigation(page);');
+    source = source.replace(chainedGoto, 'gotoTemporaryChatToleratingSupersededNavigation(page)');
+
+    const insertionMarker = "export async function throwIfChatGptRateLimitDialog(page: Page): Promise<void> {";
+    const insertionIndex = source.indexOf(insertionMarker);
+    if (insertionIndex < 0) throw new Error("Could not locate browser-worker helper insertion point");
+
+    const helper = `async function gotoTemporaryChatToleratingSupersededNavigation(page: Page): Promise<void> {
+  try {
+    await page.goto(CHATGPT_TEMPORARY_CHAT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    return;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/ERR_ABORTED/.test(message)) throw error;
+
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        const current = new URL(page.url());
+        if (current.origin === "https://chatgpt.com" && current.searchParams.get("temporary-chat") === "true") {
+          console.info("[chatgpt-web] temporary-chat-navigation-superseded: destination already reached");
+          return;
+        }
+      } catch {}
+      await new Promise(resolveSleep => setTimeout(resolveSleep, 100));
+    }
+    throw error;
+  }
+}
+
+`;
+
+    backupOnce(file);
+    source = source.slice(0, insertionIndex) + helper + source.slice(insertionIndex);
+    fs.writeFileSync(file, source, "utf8");
+    console.log(`Patched: ${file} (${marker})`);
+  }
+}
+
 console.log("");
-console.log("Effort UI workaround applied.");
+console.log("Codex Web GPT workaround applied.");
 console.log("Use ChatGPT Web — High and manually select High in the embedded ChatGPT UI.");
 console.log("Pro capability detection is temporarily disabled for the verified Plus account.");
+console.log("Superseded Temporary Chat navigation is tolerated only when the destination is actually reached.");
