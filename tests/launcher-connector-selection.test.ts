@@ -121,7 +121,7 @@ test("launcher connector selection does not retry when the connector menu is una
   }
 
   expect(caught).toBeInstanceOf(ChatGptWebAdapterError);
-  expect((caught as ChatGptWebAdapterError).retryable).toBeFalse();
+  expect((caught as ChatGptWebAdapterError).retryable).toBe(false);
   expect((caught as ChatGptWebAdapterError).code).toBe("connector_unavailable");
   expect(typed).toEqual(["@Codex Native2"]);
 });
