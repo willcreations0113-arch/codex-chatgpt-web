@@ -3,7 +3,7 @@ import { ChatGptWebAdapterError } from "./adapter-error";
 import { ChatGptBrowserWorker } from "./browser-worker";
 
 const CONNECTOR_MENU_ROW_SELECTOR = '.__menu-item[tabindex="0"]';
-const CONNECTOR_MENTION_TIMEOUT_MS = 5_000;
+const CONNECTOR_MENTION_TIMEOUT_MS = 20_000;
 const CONNECTOR_MENTION_KEY_DELAY_MS = 25;
 const CONNECTOR_UI_SETTLE_MS = 250;
 
@@ -55,10 +55,12 @@ export async function selectLauncherConnectorOnce(
   await composer.focus();
   await page.waitForTimeout(CONNECTOR_UI_SETTLE_MS);
 
-  // Type the complete connector name once. The previous implementation repeatedly typed "@c"
-  // until a menu row appeared, which could loop while ChatGPT was busy and eventually fail an
-  // otherwise healthy Codex turn.
-  await composer.pressSequentially(`@${appName}`, { delay: CONNECTOR_MENTION_KEY_DELAY_MS });
+  // ChatGPT opens connector search from a short mention prefix; typing the complete display name
+  // can be treated as ordinary composer text and never open the menu. Trigger search exactly once
+  // and then resolve the requested connector by its complete, exact row label.
+  const searchPrefix = appName.match(/[A-Za-z0-9]/)?.[0]?.toLowerCase();
+  if (!searchPrefix) throw connectorUnavailable("ChatGPT connector name has no searchable characters");
+  await composer.pressSequentially(`@${searchPrefix}`, { delay: CONNECTOR_MENTION_KEY_DELAY_MS });
   await captureDiagnostic?.("connector-mention-triggered");
 
   const menuRows = page.locator(CONNECTOR_MENU_ROW_SELECTOR);
@@ -73,7 +75,7 @@ export async function selectLauncherConnectorOnce(
     await captureDiagnostic?.("connector-menu-missing");
     const titles = await worker.connectorMentionRowTitles(menuRows);
     throw connectorUnavailable(
-      `ChatGPT connector menu did not expose one exact ${JSON.stringify(appName)} row after one full mention attempt`
+      `ChatGPT connector menu did not expose one exact ${JSON.stringify(appName)} row after one mention trigger`
       + (titles.length > 0
         ? `; visible rows: ${titles.map(title => JSON.stringify(title)).join(", ")}`
         : "; connector menu did not open"),
