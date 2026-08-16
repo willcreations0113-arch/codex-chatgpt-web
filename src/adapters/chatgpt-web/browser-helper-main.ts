@@ -4,8 +4,11 @@ import type { CodexProviderConfig } from "../../types";
 import { ChatGptBrowserWorker, closeChatGptBrowserWorkers, type BrowserTurn } from "./browser-worker";
 import { ChatGptWebAdapterError } from "./adapter-error";
 import type { ChatGptWebCapabilities } from "./model";
+import { installLauncherConnectorSelectionPatch } from "./launcher-connector-selection";
 import { createProcessLineWriter } from "./process-line-writer";
 import type { CompiledChatGptWebPrompt } from "./prompt";
+
+installLauncherConnectorSelectionPatch();
 
 interface RunMessage {
   type: "run";
