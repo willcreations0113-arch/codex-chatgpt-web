@@ -48,12 +48,38 @@ if (-not (Test-Path $LauncherExecutable)) {
   throw "Installed Codex Web GPT launcher was not found: $LauncherExecutable"
 }
 
-$LauncherVersion = Resolve-SemVer ([string](Get-Item $LauncherExecutable).VersionInfo.ProductVersion)
-if (-not $LauncherVersion) {
-  throw "Could not determine the installed launcher version"
+# Prefer the runtime actually owned by the background daemon. This avoids patching a newer or
+# older version directory when a launcher update/rollback left multiple versions installed.
+$AllProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+$RuntimeRoots = @()
+$RuntimePrefix = [regex]::Escape($VersionsRoot + "\")
+foreach ($Process in $AllProcesses) {
+  $CommandLine = [string]$Process.CommandLine
+  if (-not $CommandLine) { continue }
+  $Match = [regex]::Match(
+    $CommandLine,
+    $RuntimePrefix + '([^\\"]+-win32-x64)\\app\\cli\.js',
+    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+  )
+  if ($Match.Success) {
+    $RuntimeRoots += (Join-Path $VersionsRoot $Match.Groups[1].Value)
+  }
+}
+$RuntimeRoots = @($RuntimeRoots | Sort-Object -Unique)
+if ($RuntimeRoots.Count -gt 1) {
+  throw "Multiple active Codex Web GPT runtimes were detected: $($RuntimeRoots -join ', ')"
 }
 
-$RuntimeRoot = Join-Path $VersionsRoot "$LauncherVersion-win32-x64"
+if ($RuntimeRoots.Count -eq 1) {
+  $RuntimeRoot = $RuntimeRoots[0]
+} else {
+  $LauncherVersion = Resolve-SemVer ([string](Get-Item $LauncherExecutable).VersionInfo.ProductVersion)
+  if (-not $LauncherVersion) {
+    throw "Could not determine the installed launcher version and no active runtime process was found"
+  }
+  $RuntimeRoot = Join-Path $VersionsRoot "$LauncherVersion-win32-x64"
+}
+
 $ManifestPath = Join-Path $RuntimeRoot "manifest.json"
 $BunExecutable = Join-Path $RuntimeRoot "runtime\bun.exe"
 $HelperPath = Join-Path $RuntimeRoot "app\browser-helper.cjs"
@@ -64,8 +90,11 @@ foreach ($RequiredPath in @($ManifestPath, $BunExecutable, $HelperPath)) {
 }
 
 $Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
-if ([string]$Manifest.appVersion -ne $LauncherVersion -or [string]$Manifest.platform -ne "win32" -or [string]$Manifest.arch -ne "x64") {
-  throw "Installed runtime manifest does not match launcher version $LauncherVersion"
+$RuntimeVersion = [string]$Manifest.appVersion
+if ($RuntimeVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'
+  -or [string]$Manifest.platform -ne "win32"
+  -or [string]$Manifest.arch -ne "x64") {
+  throw "Installed runtime manifest is not a supported Windows x64 release: $ManifestPath"
 }
 
 $BusyHelpers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
@@ -81,7 +110,7 @@ $ExtractRoot = Join-Path $TempRoot "source"
 $BuiltHelper = Join-Path $TempRoot "browser-helper.cjs"
 $BackupPath = "$HelperPath.before-native2-hotfix-$((Get-Date).ToString('yyyyMMdd-HHmmss')).bak"
 $UpstreamRepository = "miuuyy/codex-chatgpt-web"
-$SourceUrl = "https://github.com/$UpstreamRepository/archive/refs/tags/v$LauncherVersion.zip"
+$SourceUrl = "https://github.com/$UpstreamRepository/archive/refs/tags/v$RuntimeVersion.zip"
 
 $HotfixModule = @'
 import type { Locator, Page } from "playwright-core";
@@ -198,8 +227,8 @@ export function installNative2MentionHotfix(): void {
 
 New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 try {
-  Write-Host "Preparing Native2 mention hotfix for Codex Web GPT $LauncherVersion..."
-  $null = Invoke-WithRetry -Label "Downloading source v$LauncherVersion" -Operation {
+  Write-Host "Preparing Native2 mention hotfix for Codex Web GPT runtime $RuntimeVersion..."
+  $null = Invoke-WithRetry -Label "Downloading source v$RuntimeVersion" -Operation {
     Remove-Item $ArchivePath -Force -ErrorAction SilentlyContinue
     Invoke-WebRequest $SourceUrl -OutFile $ArchivePath -TimeoutSec 180 -UseBasicParsing
   }
@@ -213,7 +242,7 @@ try {
   $BuildScriptPath = Join-Path $SourceRoot.FullName "scripts\build-browser-helper.ts"
   foreach ($SourcePath in @($WorkerSourcePath, $HelperMainPath, $BuildScriptPath)) {
     if (-not (Test-Path $SourcePath -PathType Leaf)) {
-      throw "Source v$LauncherVersion is not compatible with this hotfix: missing $SourcePath"
+      throw "Source v$RuntimeVersion is not compatible with this hotfix: missing $SourcePath"
     }
   }
 
@@ -226,7 +255,7 @@ try {
     'composer.pressSequentially("@c"'
   )) {
     if (-not $WorkerSource.Contains($RequiredText)) {
-      throw "Source v$LauncherVersion is not compatible with this hotfix: missing marker $RequiredText"
+      throw "Source v$RuntimeVersion is not compatible with this hotfix: missing marker $RequiredText"
     }
   }
 
@@ -235,7 +264,7 @@ try {
   $HelperMain = Get-Content $HelperMainPath -Raw
   $ModelImport = 'import type { ChatGptWebCapabilities } from "./model";'
   if (-not $HelperMain.Contains($ModelImport)) {
-    throw "Source v$LauncherVersion is not compatible with this hotfix: helper import marker changed"
+    throw "Source v$RuntimeVersion is not compatible with this hotfix: helper import marker changed"
   }
   $HotfixImport = 'import { installNative2MentionHotfix } from "./native2-mention-hotfix";'
   if (-not $HelperMain.Contains($HotfixImport)) {
@@ -243,7 +272,7 @@ try {
   }
   $InterfaceMarker = "interface RunMessage {"
   if (-not $HelperMain.Contains($InterfaceMarker)) {
-    throw "Source v$LauncherVersion is not compatible with this hotfix: helper startup marker changed"
+    throw "Source v$RuntimeVersion is not compatible with this hotfix: helper startup marker changed"
   }
   if (-not $HelperMain.Contains("installNative2MentionHotfix();")) {
     $HelperMain = $HelperMain.Replace($InterfaceMarker, "installNative2MentionHotfix();`r`n`r`n$InterfaceMarker")
