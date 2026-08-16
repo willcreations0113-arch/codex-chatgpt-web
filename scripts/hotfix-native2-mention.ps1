@@ -91,9 +91,12 @@ foreach ($RequiredPath in @($ManifestPath, $BunExecutable, $HelperPath)) {
 
 $Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
 $RuntimeVersion = [string]$Manifest.appVersion
-if ($RuntimeVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'
-  -or [string]$Manifest.platform -ne "win32"
-  -or [string]$Manifest.arch -ne "x64") {
+$SupportedRuntime = (
+  ($RuntimeVersion -match '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') -and
+  ([string]$Manifest.platform -eq "win32") -and
+  ([string]$Manifest.arch -eq "x64")
+)
+if (-not $SupportedRuntime) {
   throw "Installed runtime manifest is not a supported Windows x64 release: $ManifestPath"
 }
 
