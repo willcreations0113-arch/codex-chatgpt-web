@@ -32,7 +32,7 @@ test("launcher connector selection leaves an existing connector untouched", asyn
   expect(calls).toEqual([]);
 });
 
-test("launcher connector selection types the complete connector name exactly once", async () => {
+test("launcher connector selection types one short mention trigger exactly once", async () => {
   const typed: string[] = [];
   let selected = false;
   const selectedConnector = {
@@ -49,7 +49,7 @@ test("launcher connector selection types the complete connector name exactly onc
   const selectedComposer = {} as Locator;
   const appResult = {
     waitFor: async (options: { state: string; timeout: number }) => {
-      expect(options).toEqual({ state: "visible", timeout: 5_000 });
+      expect(options).toEqual({ state: "visible", timeout: 20_000 });
     },
     count: async () => 1,
     dispatchEvent: async (event: string) => {
@@ -86,7 +86,7 @@ test("launcher connector selection types the complete connector name exactly onc
   }), page);
 
   expect(resolved).toBe(selectedComposer);
-  expect(typed).toEqual(["@Codex Native2"]);
+  expect(typed).toEqual(["@c"]);
   expect(activeComposerCalls).toBe(2);
 });
 
@@ -123,5 +123,5 @@ test("launcher connector selection does not retry when the connector menu is una
   expect(caught).toBeInstanceOf(ChatGptWebAdapterError);
   expect((caught as ChatGptWebAdapterError).retryable).toBe(false);
   expect((caught as ChatGptWebAdapterError).code).toBe("connector_unavailable");
-  expect(typed).toEqual(["@Codex Native2"]);
+  expect(typed).toEqual(["@c"]);
 });
