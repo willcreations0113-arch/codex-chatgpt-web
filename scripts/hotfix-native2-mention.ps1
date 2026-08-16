@@ -83,7 +83,9 @@ if ($RuntimeRoots.Count -eq 1) {
 $ManifestPath = Join-Path $RuntimeRoot "manifest.json"
 $BunExecutable = Join-Path $RuntimeRoot "runtime\bun.exe"
 $HelperPath = Join-Path $RuntimeRoot "app\browser-helper.cjs"
-foreach ($RequiredPath in @($ManifestPath, $BunExecutable, $HelperPath)) {
+$LauncherHelperPath = Join-Path (Split-Path $LauncherExecutable -Parent) "resources\runtime\app\browser-helper.cjs"
+$HelperPaths = @(@($HelperPath, $LauncherHelperPath) | Sort-Object -Unique)
+foreach ($RequiredPath in @($ManifestPath, $BunExecutable) + $HelperPaths) {
   if (-not (Test-Path $RequiredPath -PathType Leaf)) {
     throw "Installed runtime file was not found: $RequiredPath"
   }
@@ -101,7 +103,11 @@ if (-not $SupportedRuntime) {
 }
 
 $BusyHelpers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-  $_.CommandLine -and $_.CommandLine.Contains($HelperPath)
+  if (-not $_.CommandLine) { return $false }
+  foreach ($CandidatePath in $HelperPaths) {
+    if ($_.CommandLine.Contains($CandidatePath)) { return $true }
+  }
+  return $false
 }
 if ($BusyHelpers) {
   throw "A browser-helper process is still using the runtime. Quit Codex Web GPT completely and retry."
@@ -111,7 +117,8 @@ $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "codex-web-gpt-native2-h
 $ArchivePath = Join-Path $TempRoot "source.zip"
 $ExtractRoot = Join-Path $TempRoot "source"
 $BuiltHelper = Join-Path $TempRoot "browser-helper.cjs"
-$BackupPath = "$HelperPath.before-native2-hotfix-$((Get-Date).ToString('yyyyMMdd-HHmmss')).bak"
+$BackupTimestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$Backups = @()
 $UpstreamRepository = "miuuyy/codex-chatgpt-web"
 $SourceUrl = "https://github.com/$UpstreamRepository/archive/refs/tags/v$RuntimeVersion.zip"
 
@@ -304,23 +311,36 @@ try {
     throw "Built helper does not contain the Native2 mention hotfix markers"
   }
 
-  Copy-Item $HelperPath $BackupPath -ErrorAction Stop
   try {
-    Copy-Item $BuiltHelper $HelperPath -Force -ErrorAction Stop
+    foreach ($TargetPath in $HelperPaths) {
+      $BackupPath = "$TargetPath.before-native2-hotfix-$BackupTimestamp.bak"
+      Copy-Item $TargetPath $BackupPath -ErrorAction Stop
+      $Backups += [PSCustomObject]@{ Target = $TargetPath; Backup = $BackupPath }
+      Copy-Item $BuiltHelper $TargetPath -Force -ErrorAction Stop
+    }
   } catch {
-    Copy-Item $BackupPath $HelperPath -Force -ErrorAction SilentlyContinue
+    foreach ($Backup in $Backups) {
+      Copy-Item $Backup.Backup $Backup.Target -Force -ErrorAction SilentlyContinue
+    }
     throw
   }
 
-  $InstalledText = Get-Content $HelperPath -Raw
-  if (-not $InstalledText.Contains("connector_unavailable") -or -not $InstalledText.Contains("one full mention attempt")) {
-    Copy-Item $BackupPath $HelperPath -Force
-    throw "Installed helper verification failed; the original helper was restored"
+  foreach ($TargetPath in $HelperPaths) {
+    $InstalledText = Get-Content $TargetPath -Raw
+    if (-not $InstalledText.Contains("connector_unavailable") -or -not $InstalledText.Contains("one full mention attempt")) {
+      foreach ($Backup in $Backups) {
+        Copy-Item $Backup.Backup $Backup.Target -Force -ErrorAction SilentlyContinue
+      }
+      throw "Installed helper verification failed for $TargetPath; the original helpers were restored"
+    }
   }
 
   Write-Host "Native2 mention hotfix installed successfully."
   Write-Host "Runtime: $RuntimeRoot"
-  Write-Host "Backup:  $BackupPath"
+  foreach ($Backup in $Backups) {
+    Write-Host "Patched: $($Backup.Target)"
+    Write-Host "Backup:  $($Backup.Backup)"
+  }
   Start-Process $LauncherExecutable
 } catch {
   Write-Error $_
