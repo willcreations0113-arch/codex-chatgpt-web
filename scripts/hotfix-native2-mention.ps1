@@ -128,7 +128,7 @@ import { ChatGptWebAdapterError } from "./adapter-error";
 import { ChatGptBrowserWorker } from "./browser-worker";
 
 const CONNECTOR_MENU_ROW_SELECTOR = '.__menu-item[tabindex="0"]';
-const CONNECTOR_MENTION_TIMEOUT_MS = 5_000;
+const CONNECTOR_MENTION_TIMEOUT_MS = 20_000;
 const CONNECTOR_MENTION_KEY_DELAY_MS = 25;
 const CONNECTOR_UI_SETTLE_MS = 250;
 
@@ -176,7 +176,9 @@ async function selectConnectorOnce(
   await composer.fill("");
   await composer.focus();
   await page.waitForTimeout(CONNECTOR_UI_SETTLE_MS);
-  await composer.pressSequentially(`@${appName}`, { delay: CONNECTOR_MENTION_KEY_DELAY_MS });
+  const searchPrefix = appName.match(/[A-Za-z0-9]/)?.[0]?.toLowerCase();
+  if (!searchPrefix) throw connectorUnavailable("ChatGPT connector name has no searchable characters");
+  await composer.pressSequentially(`@${searchPrefix}`, { delay: CONNECTOR_MENTION_KEY_DELAY_MS });
   await captureDiagnostic?.("connector-mention-triggered");
 
   const menuRows = page.locator(CONNECTOR_MENU_ROW_SELECTOR);
@@ -191,7 +193,7 @@ async function selectConnectorOnce(
     await captureDiagnostic?.("connector-menu-missing");
     const titles = await worker.connectorMentionRowTitles(menuRows);
     throw connectorUnavailable(
-      `ChatGPT connector menu did not expose one exact ${JSON.stringify(appName)} row after one full mention attempt`
+      `ChatGPT connector menu did not expose one exact ${JSON.stringify(appName)} row after one mention trigger`
       + (titles.length > 0
         ? `; visible rows: ${titles.map(title => JSON.stringify(title)).join(", ")}`
         : "; connector menu did not open"),
@@ -307,7 +309,7 @@ try {
     throw "Hotfix browser-helper.cjs is unexpectedly small ($BuiltLength bytes)"
   }
   $BuiltText = Get-Content $BuiltHelper -Raw
-  if (-not $BuiltText.Contains("connector_unavailable") -or -not $BuiltText.Contains("one full mention attempt")) {
+  if (-not $BuiltText.Contains("connector_unavailable") -or -not $BuiltText.Contains("one mention trigger")) {
     throw "Built helper does not contain the Native2 mention hotfix markers"
   }
 
@@ -327,7 +329,7 @@ try {
 
   foreach ($TargetPath in $HelperPaths) {
     $InstalledText = Get-Content $TargetPath -Raw
-    if (-not $InstalledText.Contains("connector_unavailable") -or -not $InstalledText.Contains("one full mention attempt")) {
+    if (-not $InstalledText.Contains("connector_unavailable") -or -not $InstalledText.Contains("one mention trigger")) {
       foreach ($Backup in $Backups) {
         Copy-Item $Backup.Backup $Backup.Target -Force -ErrorAction SilentlyContinue
       }
