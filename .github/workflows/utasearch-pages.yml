@@ -1,4 +1,4 @@
-name: Deploy UtaSearch emergency site
+name: Deploy UtaSearch recovery site
 
 on:
   push:
@@ -26,6 +26,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Build recovery site
+        run: |
+          mkdir -p site
+          base64 -d utasearch-public/recovery.html.gz.b64 | gunzip > site/index.html
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
@@ -33,7 +37,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./utasearch-public
+          path: ./site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
