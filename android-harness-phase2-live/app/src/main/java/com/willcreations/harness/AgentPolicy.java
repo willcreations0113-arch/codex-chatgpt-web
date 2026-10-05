@@ -24,6 +24,8 @@ public final class AgentPolicy {
         switch (action.type) {
             case OPEN_BLUETOOTH_SETTINGS:
             case BACK:
+            case READ_PACKAGES:
+            case READ_PROCESSES:
             case WAIT:
             case FINISH:
             case FAIL:
