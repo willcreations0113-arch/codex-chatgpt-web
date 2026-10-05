@@ -31,6 +31,7 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener {
         shizukuStatus = new TextView(this);
         output = new TextView(this);
         output.setTextIsSelectable(true);
+        output.setPadding(0, 24, 0, 48);
 
         Button access = button("Accessibility設定", () -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         Button demo = button("自律ループを開始", () -> {
@@ -50,7 +51,7 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener {
         root.addView(packages);
         root.addView(processes);
         root.addView(logs);
-        root.addView(output, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(output, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
