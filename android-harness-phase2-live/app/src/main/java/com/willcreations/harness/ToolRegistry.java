@@ -6,9 +6,11 @@ import android.provider.Settings;
 
 public final class ToolRegistry {
     private final Context context;
+    private final ShizukuBridge shizuku;
 
-    public ToolRegistry(Context context) {
+    public ToolRegistry(Context context, ShizukuBridge shizuku) {
         this.context = context.getApplicationContext();
+        this.shizuku = shizuku;
     }
 
     public ToolResult execute(AgentAction action) {
@@ -24,6 +26,14 @@ public final class ToolRegistry {
                     return HarnessAccessibilityService.clickText(action.targetText);
                 case BACK:
                     return HarnessAccessibilityService.goBack();
+                case READ_PACKAGES:
+                    return shizuku == null
+                            ? ToolResult.fail("Shizuku bridge unavailable")
+                            : shizuku.agentListPackages();
+                case READ_PROCESSES:
+                    return shizuku == null
+                            ? ToolResult.fail("Shizuku bridge unavailable")
+                            : shizuku.agentListProcesses();
                 case WAIT:
                     return ToolResult.ok("WAIT");
                 case FINISH:
