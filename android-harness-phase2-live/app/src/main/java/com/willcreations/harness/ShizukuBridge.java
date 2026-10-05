@@ -25,7 +25,7 @@ public final class ShizukuBridge {
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private IPrivilegedService service;
+    private volatile IPrivilegedService service;
     private boolean listenersAdded;
     private boolean binding;
 
@@ -98,6 +98,30 @@ public final class ShizukuBridge {
             Shizuku.requestPermission(REQUEST_CODE);
         } catch (Throwable t) {
             emitState("Shizuku error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+        }
+    }
+
+    public boolean isPrivilegedConnected() {
+        return service != null;
+    }
+
+    public ToolResult agentListPackages() {
+        IPrivilegedService current = service;
+        if (current == null) return ToolResult.fail("Shizuku privileged service is not connected");
+        try {
+            return ToolResult.ok(current.listPackages(30));
+        } catch (Throwable t) {
+            return ToolResult.fail("Shizuku packages error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+        }
+    }
+
+    public ToolResult agentListProcesses() {
+        IPrivilegedService current = service;
+        if (current == null) return ToolResult.fail("Shizuku privileged service is not connected");
+        try {
+            return ToolResult.ok(current.listProcesses(30));
+        } catch (Throwable t) {
+            return ToolResult.fail("Shizuku processes error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
         }
     }
 
