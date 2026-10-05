@@ -17,7 +17,7 @@ public final class AgentRunner {
     private static final int MAX_STEPS = 8;
 
     private final TaskStore store;
-    private final OpenAiPlanner planner = new OpenAiPlanner();
+    private final ProviderPlanner planner = new ProviderPlanner();
     private final AgentPolicy policy = new AgentPolicy();
     private final AgentVerifier verifier = new AgentVerifier();
     private final ToolRegistry tools;
@@ -40,10 +40,14 @@ public final class AgentRunner {
         return running.get();
     }
 
-    public void start(String goal, String apiKey) {
+    public void start(String goal, ProviderConfig config, String apiKey) {
         String normalizedGoal = goal == null ? "" : goal.trim();
         if (normalizedGoal.isEmpty()) {
             emitState("AI_FAILED: 目的を入力してください");
+            return;
+        }
+        if (config == null) {
+            emitState("AI_FAILED: AIプロバイダ設定がありません");
             return;
         }
         if (!running.compareAndSet(false, true)) {
@@ -51,7 +55,7 @@ public final class AgentRunner {
             return;
         }
         cancelled.set(false);
-        worker.execute(() -> runLoop(normalizedGoal, apiKey));
+        worker.execute(() -> runLoop(normalizedGoal, config, apiKey));
     }
 
     public void cancel() {
@@ -64,9 +68,10 @@ public final class AgentRunner {
         worker.shutdownNow();
     }
 
-    private void runLoop(String goal, String apiKey) {
+    private void runLoop(String goal, ProviderConfig config, String apiKey) {
         StringBuilder history = new StringBuilder();
         try {
+            config.validate();
             if (!HarnessAccessibilityService.isReady()) {
                 fail("Accessibilityが接続されていません。先にAccessibility設定をONにしてください", 0);
                 return;
@@ -76,6 +81,7 @@ public final class AgentRunner {
                     .append('\n');
             store.set("AI_RUNNING", 0);
             emitState("AI_RUNNING");
+            emitLog("PROVIDER: " + config.type.label + " / model=" + config.model);
             emitLog("GOAL: " + goal);
 
             int policyDenials = 0;
@@ -93,7 +99,7 @@ public final class AgentRunner {
                     return;
                 }
 
-                AgentAction action = planner.plan(apiKey, goal, before, history.toString());
+                AgentAction action = planner.plan(config, apiKey, goal, before, history.toString());
                 emitLog("PLAN: " + action + " / " + action.rationale);
 
                 AgentPolicy.Decision decision = policy.check(action, before);
