@@ -21,16 +21,18 @@ public final class AgentRunner {
     private final AgentPolicy policy = new AgentPolicy();
     private final AgentVerifier verifier = new AgentVerifier();
     private final ToolRegistry tools;
+    private final ShizukuBridge shizuku;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    public AgentRunner(Context context, Listener listener) {
+    public AgentRunner(Context context, ShizukuBridge shizuku, Listener listener) {
         Context app = context.getApplicationContext();
         this.store = new TaskStore(app);
-        this.tools = new ToolRegistry(app);
+        this.shizuku = shizuku;
+        this.tools = new ToolRegistry(app, shizuku);
         this.listener = listener;
     }
 
@@ -69,6 +71,9 @@ public final class AgentRunner {
                 fail("Accessibilityが接続されていません。先にAccessibility設定をONにしてください", 0);
                 return;
             }
+            history.append("system: shizuku_connected=")
+                    .append(shizuku != null && shizuku.isPrivilegedConnected())
+                    .append('\n');
             store.set("AI_RUNNING", 0);
             emitState("AI_RUNNING");
             emitLog("GOAL: " + goal);
@@ -122,8 +127,10 @@ public final class AgentRunner {
                 }
 
                 ToolResult result = tools.execute(action);
-                emitLog("TOOL: " + (result.ok ? "OK " : "FAIL ") + result.message);
-                appendHistory(history, step, action, result.message);
+                String safeResult = result.message;
+                if (safeResult.length() > 4500) safeResult = safeResult.substring(0, 4500) + "…";
+                emitLog("TOOL: " + (result.ok ? "OK " : "FAIL ") + safeResult);
+                appendHistory(history, step, action, safeResult);
                 store.set("AI_RUNNING", step);
 
                 if (action.type == AgentAction.Type.WAIT) {
