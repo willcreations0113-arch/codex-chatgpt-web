@@ -16,10 +16,11 @@ import javax.crypto.spec.GCMParameterSpec;
 
 public final class SecretStore {
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
+    // Keep the original alias so existing OpenAI keys remain decryptable after upgrade.
     private static final String KEY_ALIAS = "will_harness_openai_key_v1";
     private static final String PREFS = "secrets";
-    private static final String KEY_CIPHER = "openai_cipher";
-    private static final String KEY_IV = "openai_iv";
+    private static final String LEGACY_OPENAI_CIPHER = "openai_cipher";
+    private static final String LEGACY_OPENAI_IV = "openai_iv";
 
     private final SharedPreferences prefs;
 
@@ -27,22 +28,30 @@ public final class SecretStore {
         prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    public synchronized void saveOpenAiKey(String apiKey) throws Exception {
+    public synchronized void saveApiKey(String providerId, String apiKey) throws Exception {
+        String id = normalize(providerId);
         if (apiKey == null || apiKey.trim().isEmpty()) throw new IllegalArgumentException("API key is empty");
         SecretKey key = getOrCreateKey();
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key);
         byte[] encrypted = cipher.doFinal(apiKey.trim().getBytes(StandardCharsets.UTF_8));
         prefs.edit()
-                .putString(KEY_CIPHER, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                .putString(KEY_IV, Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
+                .putString(cipherKey(id), Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .putString(ivKey(id), Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
                 .apply();
     }
 
-    public synchronized String loadOpenAiKey() throws Exception {
-        String cipherText = prefs.getString(KEY_CIPHER, null);
-        String ivText = prefs.getString(KEY_IV, null);
+    public synchronized String loadApiKey(String providerId) throws Exception {
+        String id = normalize(providerId);
+        String cipherText = prefs.getString(cipherKey(id), null);
+        String ivText = prefs.getString(ivKey(id), null);
+
+        if ("openai".equals(id) && (cipherText == null || ivText == null)) {
+            cipherText = prefs.getString(LEGACY_OPENAI_CIPHER, null);
+            ivText = prefs.getString(LEGACY_OPENAI_IV, null);
+        }
         if (cipherText == null || ivText == null) return "";
+
         SecretKey key = getOrCreateKey();
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, Base64.decode(ivText, Base64.NO_WRAP)));
@@ -50,9 +59,30 @@ public final class SecretStore {
         return new String(plain, StandardCharsets.UTF_8);
     }
 
-    public boolean hasOpenAiKey() {
-        return prefs.contains(KEY_CIPHER) && prefs.contains(KEY_IV);
+    public boolean hasApiKey(String providerId) {
+        String id = normalize(providerId);
+        if (prefs.contains(cipherKey(id)) && prefs.contains(ivKey(id))) return true;
+        return "openai".equals(id) && prefs.contains(LEGACY_OPENAI_CIPHER) && prefs.contains(LEGACY_OPENAI_IV);
     }
+
+    public synchronized void clearApiKey(String providerId) {
+        String id = normalize(providerId);
+        prefs.edit().remove(cipherKey(id)).remove(ivKey(id)).apply();
+    }
+
+    // Backward-compatible methods used by older builds.
+    public void saveOpenAiKey(String apiKey) throws Exception { saveApiKey("openai", apiKey); }
+    public String loadOpenAiKey() throws Exception { return loadApiKey("openai"); }
+    public boolean hasOpenAiKey() { return hasApiKey("openai"); }
+
+    private String normalize(String providerId) {
+        String id = providerId == null ? "" : providerId.trim().toLowerCase();
+        if (id.isEmpty()) throw new IllegalArgumentException("Provider ID is empty");
+        return id.replaceAll("[^a-z0-9_]+", "_");
+    }
+
+    private String cipherKey(String id) { return "provider_" + id + "_cipher"; }
+    private String ivKey(String id) { return "provider_" + id + "_iv"; }
 
     private SecretKey getOrCreateKey() throws Exception {
         KeyStore store = KeyStore.getInstance(ANDROID_KEYSTORE);
