@@ -33,7 +33,7 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener, Ag
         store = new TaskStore(this);
         secrets = new SecretStore(this);
         shizuku = new ShizukuBridge(this, this);
-        agent = new AgentRunner(this, this);
+        agent = new AgentRunner(this, shizuku, this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
