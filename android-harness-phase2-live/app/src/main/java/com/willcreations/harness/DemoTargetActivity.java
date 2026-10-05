@@ -1,0 +1,3 @@
+package com.willcreations.harness;
+import android.app.*; import android.os.*; import android.view.*; import android.widget.*;
+public class DemoTargetActivity extends Activity { public void onCreate(Bundle b){super.onCreate(b); LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL); TextView title=new TextView(this);title.setText("自律テスト");Button target=new Button(this);target.setText("操作対象"); target.setOnClickListener(v->{target.setVisibility(View.GONE);TextView done=new TextView(this);done.setText("完了");l.addView(done);});l.addView(title);l.addView(target);setContentView(l);} }

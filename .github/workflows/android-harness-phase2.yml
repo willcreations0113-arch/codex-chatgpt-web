@@ -1,0 +1,24 @@
+name: Android Harness Phase 2
+on:
+  push:
+    branches: [android-harness-phase2-build]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - name: Build APK
+        working-directory: android-harness-phase2-live
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: will-harness-phase2-debug-apk
+          path: android-harness-phase2-live/app/build/outputs/apk/debug/app-debug.apk
