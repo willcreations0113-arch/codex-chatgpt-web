@@ -5,24 +5,32 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
+import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity implements ShizukuBridge.Listener, AgentRunner.Listener {
     private TextView status;
     private TextView shizukuStatus;
-    private TextView apiStatus;
+    private TextView providerStatus;
     private TextView agentStatus;
     private TextView output;
+    private Spinner providerSpinner;
+    private EditText modelInput;
+    private EditText baseUrlInput;
     private EditText apiKeyInput;
     private EditText goalInput;
     private TaskStore store;
     private SecretStore secrets;
+    private ProviderStore providerStore;
     private ShizukuBridge shizuku;
     private AgentRunner agent;
     private final StringBuilder agentLog = new StringBuilder();
@@ -32,6 +40,7 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener, Ag
         super.onCreate(b);
         store = new TaskStore(this);
         secrets = new SecretStore(this);
+        providerStore = new ProviderStore(this);
         shizuku = new ShizukuBridge(this, this);
         agent = new AgentRunner(this, shizuku, this);
 
@@ -41,12 +50,29 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener, Ag
 
         status = new TextView(this);
         shizukuStatus = new TextView(this);
-        apiStatus = new TextView(this);
+        providerStatus = new TextView(this);
         agentStatus = new TextView(this);
         agentStatus.setText("AI Agent: idle");
 
+        providerSpinner = new Spinner(this);
+        String[] labels = new String[ProviderConfig.Type.values().length];
+        for (int i = 0; i < labels.length; i++) labels[i] = ProviderConfig.Type.values()[i].label;
+        ArrayAdapter<String> providerAdapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, labels);
+        providerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        providerSpinner.setAdapter(providerAdapter);
+
+        modelInput = new EditText(this);
+        modelInput.setHint("Model ID");
+        modelInput.setSingleLine(true);
+
+        baseUrlInput = new EditText(this);
+        baseUrlInput.setHint("Base URL");
+        baseUrlInput.setSingleLine(true);
+        baseUrlInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+
         apiKeyInput = new EditText(this);
-        apiKeyInput.setHint("OpenAI API key（端末Keystoreで暗号化保存）");
+        apiKeyInput.setHint("選択中AIのAPI key（Keystoreで暗号化保存）");
         apiKeyInput.setSingleLine(true);
         apiKeyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
 
@@ -69,7 +95,7 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener, Ag
         Button packages = button("アプリ一覧（読取）", shizuku::listPackages);
         Button processes = button("プロセス一覧（読取）", shizuku::listProcesses);
         Button logs = button("Logcat（読取）", shizuku::readLogcat);
-        Button saveKey = button("OpenAI APIキーを保存", this::saveApiKey);
+        Button saveProvider = button("AIプロバイダ設定を保存", this::saveProviderSettings);
         Button startAi = button("AIタスク開始", this::startAgent);
         Button stopAi = button("AIタスク停止", () -> agent.cancel());
 
@@ -83,12 +109,15 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener, Ag
         root.addView(logs);
 
         TextView phase = new TextView(this);
-        phase.setText("\nPhase 4 — AI Planner");
+        phase.setText("\nPhase 4.1 — Multi AI Planner");
         phase.setTextSize(20);
         root.addView(phase);
-        root.addView(apiStatus);
+        root.addView(providerStatus);
+        root.addView(providerSpinner);
+        root.addView(modelInput);
+        root.addView(baseUrlInput);
         root.addView(apiKeyInput);
-        root.addView(saveKey);
+        root.addView(saveProvider);
         root.addView(goalInput);
         root.addView(startAi);
         root.addView(stopAi);
@@ -100,8 +129,25 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener, Ag
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         setContentView(scroll);
+
+        ProviderConfig.Type selected = providerStore.selectedType();
+        providerSpinner.setSelection(selected.ordinal());
+        loadProviderFields(selected);
+        providerSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                ProviderConfig.Type type = ProviderConfig.Type.values()[position];
+                providerStore.select(type);
+                apiKeyInput.setText("");
+                loadProviderFields(type);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
+
         shizuku.start();
-        refreshApiStatus();
+        refreshProviderStatus();
     }
 
     private Button button(String label, Runnable action) {
@@ -111,49 +157,90 @@ public class MainActivity extends Activity implements ShizukuBridge.Listener, Ag
         return b;
     }
 
-    private void saveApiKey() {
-        String value = apiKeyInput.getText().toString().trim();
-        if (value.isEmpty()) {
-            Toast.makeText(this, "APIキーを入力してください", Toast.LENGTH_SHORT).show();
-            return;
-        }
+    private ProviderConfig.Type selectedProvider() {
+        int position = providerSpinner.getSelectedItemPosition();
+        if (position < 0 || position >= ProviderConfig.Type.values().length) return ProviderConfig.Type.OPENAI;
+        return ProviderConfig.Type.values()[position];
+    }
+
+    private ProviderConfig currentConfig() {
+        return new ProviderConfig(
+                selectedProvider(),
+                modelInput.getText().toString(),
+                baseUrlInput.getText().toString()
+        );
+    }
+
+    private void loadProviderFields(ProviderConfig.Type type) {
+        ProviderConfig config = providerStore.load(type);
+        modelInput.setText(config.model);
+        baseUrlInput.setText(config.baseUrl);
+        refreshProviderStatus();
+    }
+
+    private void saveProviderSettings() {
         try {
-            secrets.saveOpenAiKey(value);
-            apiKeyInput.setText("");
-            refreshApiStatus();
-            Toast.makeText(this, "APIキーを暗号化保存しました", Toast.LENGTH_SHORT).show();
+            ProviderConfig config = currentConfig();
+            config.validate();
+            providerStore.save(config);
+
+            String enteredKey = apiKeyInput.getText().toString().trim();
+            if (!enteredKey.isEmpty()) {
+                secrets.saveApiKey(config.id(), enteredKey);
+                apiKeyInput.setText("");
+            }
+            refreshProviderStatus();
+            Toast.makeText(this, config.type.label + " 設定を保存しました", Toast.LENGTH_SHORT).show();
         } catch (Throwable t) {
-            apiStatus.setText("API key: 保存失敗 " + t.getClass().getSimpleName());
+            providerStatus.setText("Provider: 保存失敗 " + t.getClass().getSimpleName() + ": " + t.getMessage());
         }
     }
 
     private void startAgent() {
         try {
-            String key = secrets.loadOpenAiKey();
+            ProviderConfig config = currentConfig();
+            config.validate();
+            providerStore.save(config);
+
+            String enteredKey = apiKeyInput.getText().toString().trim();
+            if (!enteredKey.isEmpty()) {
+                secrets.saveApiKey(config.id(), enteredKey);
+                apiKeyInput.setText("");
+            }
+
+            String key = secrets.loadApiKey(config.id());
             if (key.isEmpty()) {
-                agentStatus.setText("AI Agent: APIキーが未設定です");
+                agentStatus.setText("AI Agent: " + config.type.label + " APIキーが未設定です");
                 return;
             }
+
             String goal = goalInput.getText().toString().trim();
             agentLog.setLength(0);
             output.setText("");
-            agent.start(goal, key);
+            refreshProviderStatus();
+            agent.start(goal, config, key);
         } catch (Throwable t) {
-            agentStatus.setText("AI Agent: KeyStore error: " + t.getClass().getSimpleName());
+            agentStatus.setText("AI Agent: 設定エラー " + t.getClass().getSimpleName() + ": " + t.getMessage());
         }
     }
 
-    private void refreshApiStatus() {
-        apiStatus.setText(secrets.hasOpenAiKey()
-                ? "OpenAI API key: configured"
-                : "OpenAI API key: not configured");
+    private void refreshProviderStatus() {
+        if (providerStatus == null || providerSpinner == null || modelInput == null) return;
+        ProviderConfig.Type type = selectedProvider();
+        boolean configured;
+        try { configured = secrets.hasApiKey(type.name().toLowerCase()); }
+        catch (Throwable t) { configured = false; }
+        String model = modelInput.getText() == null ? "" : modelInput.getText().toString().trim();
+        providerStatus.setText("AI: " + type.label +
+                " / key=" + (configured ? "configured" : "not configured") +
+                " / model=" + (model.isEmpty() ? "(未設定)" : model));
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         status.setText("Task state: " + store.state() + " / attempt=" + store.attempt());
-        refreshApiStatus();
+        refreshProviderStatus();
     }
 
     @Override
