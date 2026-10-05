@@ -2,6 +2,22 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.willcreations.harness'
     compileSdk 35
-    defaultConfig { applicationId 'com.willcreations.harness'; minSdk 30; targetSdk 35; versionCode 3; versionName '0.3.0' }
-    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    defaultConfig {
+        applicationId 'com.willcreations.harness'
+        minSdk 30
+        targetSdk 35
+        versionCode 4
+        versionName '0.4.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures { aidl true }
+}
+
+dependencies {
+    def shizukuVersion = '13.1.5'
+    implementation "dev.rikka.shizuku:api:$shizukuVersion"
+    implementation "dev.rikka.shizuku:provider:$shizukuVersion"
 }
