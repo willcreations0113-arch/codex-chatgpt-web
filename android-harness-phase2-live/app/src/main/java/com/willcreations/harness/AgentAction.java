@@ -8,6 +8,8 @@ public final class AgentAction {
         OPEN_BLUETOOTH_SETTINGS,
         CLICK_TEXT,
         BACK,
+        READ_PACKAGES,
+        READ_PROCESSES,
         WAIT,
         FINISH,
         FAIL
