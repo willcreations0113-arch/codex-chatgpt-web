@@ -14,12 +14,28 @@ public class ProviderConfigTest {
     }
 
     @Test public void knownPresetsUseExpectedApiFamilies() {
+        assertEquals("https://api.openai.com/v1", ProviderConfig.defaults(ProviderConfig.Type.CHATGPT_LOGIN).baseUrl);
         assertEquals("https://api.openai.com/v1", ProviderConfig.defaults(ProviderConfig.Type.OPENAI).baseUrl);
         assertEquals("https://api.anthropic.com", ProviderConfig.defaults(ProviderConfig.Type.ANTHROPIC).baseUrl);
         assertEquals("https://generativelanguage.googleapis.com/v1", ProviderConfig.defaults(ProviderConfig.Type.GEMINI).baseUrl);
         assertEquals("https://api.x.ai/v1", ProviderConfig.defaults(ProviderConfig.Type.XAI).baseUrl);
         assertEquals("https://api.groq.com/openai/v1", ProviderConfig.defaults(ProviderConfig.Type.GROQ).baseUrl);
         assertEquals("https://openrouter.ai/api/v1", ProviderConfig.defaults(ProviderConfig.Type.OPENROUTER).baseUrl);
+    }
+
+    @Test public void chatGptLoginIsNotApiKeyMode() {
+        ProviderConfig c = ProviderConfig.defaults(ProviderConfig.Type.CHATGPT_LOGIN);
+        assertTrue(c.usesChatGptLogin());
+        assertFalse(c.requiresApiKey());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void chatGptLoginRejectsNonOpenAiApiDestination() {
+        new ProviderConfig(
+                ProviderConfig.Type.CHATGPT_LOGIN,
+                "gpt-6.1-sol",
+                "https://example.com/v1"
+        ).validate();
     }
 
     @Test(expected = IllegalArgumentException.class)
