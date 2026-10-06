@@ -10,6 +10,11 @@ public final class AgentAction {
         BACK,
         READ_PACKAGES,
         READ_PROCESSES,
+        DEV_ENV_PROBE,
+        DEV_GIT_STATUS,
+        DEV_GIT_DIFF,
+        DEV_TESTS,
+        DEV_BUILD,
         WAIT,
         FINISH,
         FAIL
