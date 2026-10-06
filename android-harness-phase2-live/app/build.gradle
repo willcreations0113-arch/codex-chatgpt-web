@@ -20,6 +20,6 @@ dependencies {
     def shizukuVersion = '13.1.5'
     implementation "dev.rikka.shizuku:api:$shizukuVersion"
     implementation "dev.rikka.shizuku:provider:$shizukuVersion"
-    implementation "com.github.termux.termux-app:termux-shared:0.118.0"
+    implementation "com.termux.termux-app:termux-shared:0.118.0"\n    implementation "com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava"
     testImplementation 'junit:junit:4.13.2'
 }
