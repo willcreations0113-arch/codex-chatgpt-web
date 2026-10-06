@@ -22,19 +22,26 @@ public final class ProviderPlanner {
             "Use FINISH only when the current UI already contains visible evidence proving the goal; put that exact visible evidence in target_text. " +
             "If the goal cannot be safely completed with these capabilities, return FAIL. Keep rationale short and operational.";
 
-    public AgentAction plan(ProviderConfig config, String apiKey, String goal, UiSnapshot snapshot, String history) throws Exception {
+    public AgentAction plan(ProviderConfig config, String credential, String goal, UiSnapshot snapshot, String history) throws Exception {
         if (config == null) throw new IllegalArgumentException("Provider config is missing");
         config.validate();
-        if (apiKey == null || apiKey.trim().isEmpty()) throw new IllegalArgumentException(config.type.label + " API key is not configured");
+        if (credential == null || credential.trim().isEmpty()) {
+            throw new IllegalArgumentException(config.usesChatGptLogin()
+                    ? "ChatGPT login token is not configured"
+                    : config.type.label + " API key is not configured");
+        }
 
         String input = buildInput(goal, snapshot, history);
         String json;
         switch (config.type) {
+            case CHATGPT_LOGIN:
+                json = callChatGptPlan(config, credential, input);
+                break;
             case ANTHROPIC:
-                json = callAnthropic(config, apiKey, input);
+                json = callAnthropic(config, credential, input);
                 break;
             case GEMINI:
-                json = callGemini(config, apiKey, input);
+                json = callGemini(config, credential, input);
                 break;
             case OPENAI:
             case XAI:
@@ -42,10 +49,69 @@ public final class ProviderPlanner {
             case OPENROUTER:
             case CUSTOM_RESPONSES:
             default:
-                json = callResponsesCompatible(config, apiKey, input);
+                json = callResponsesCompatible(config, credential, input);
                 break;
         }
         return AgentAction.fromJson(json);
+    }
+
+    private String callChatGptPlan(ProviderConfig config, String accessToken, String input) throws Exception {
+        if (!"https://api.openai.com/v1".equals(config.baseUrl)) {
+            throw new SecurityException("ChatGPT OAuth token may only be sent to https://api.openai.com/v1");
+        }
+
+        JSONObject body = new JSONObject();
+        body.put("model", config.model);
+        body.put("store", false);
+        body.put("stream", true);
+        body.put("instructions", INSTRUCTIONS);
+        body.put("input", new JSONArray().put(new JSONObject()
+                .put("role", "user")
+                .put("content", input)));
+        body.put("text", new JSONObject().put("format", openAiFormat()));
+
+        HttpURLConnection connection = openPost(config.baseUrl + "/responses", accessToken, null);
+        byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
+        try (OutputStream os = connection.getOutputStream()) {
+            os.write(payload);
+        }
+
+        int code = connection.getResponseCode();
+        if (code < 200 || code >= 300) {
+            String errorBody = readAll(connection.getErrorStream());
+            throw new IllegalStateException("ChatGPT HTTP " + code + ": " + abbreviate(errorBody, 700));
+        }
+
+        StringBuilder output = new StringBuilder();
+        boolean completed = false;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data:")) continue;
+                String data = line.substring(5).trim();
+                if (data.isEmpty() || "[DONE]".equals(data)) continue;
+                JSONObject event = new JSONObject(data);
+                String type = event.optString("type", "");
+
+                if ("response.output_text.delta".equals(type)) {
+                    output.append(event.optString("delta", ""));
+                } else if ("response.completed".equals(type)) {
+                    completed = true;
+                } else if ("response.failed".equals(type) || "response.incomplete".equals(type) || "error".equals(type)) {
+                    JSONObject response = event.optJSONObject("response");
+                    JSONObject error = response == null ? event.optJSONObject("error") : response.optJSONObject("error");
+                    String message = error == null
+                            ? event.toString()
+                            : error.optString("code", "") + " " + error.optString("message", "");
+                    throw new IllegalStateException("ChatGPT stream failed: " + abbreviate(message, 700));
+                }
+            }
+        }
+
+        if (!completed) throw new IllegalStateException("ChatGPT stream ended before response.completed");
+        String text = output.toString().trim();
+        if (text.isEmpty()) throw new IllegalStateException("ChatGPT response contained no output_text");
+        return text;
     }
 
     private String callResponsesCompatible(ProviderConfig config, String apiKey, String input) throws Exception {
@@ -202,13 +268,14 @@ public final class ProviderPlanner {
                 .put("schema", actionSchema());
     }
 
-    private HttpResult post(String endpoint, String bearerKey, JSONObject extraHeaders, JSONObject body) throws Exception {
+    private HttpURLConnection openPost(String endpoint, String bearerKey, JSONObject extraHeaders) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
         connection.setRequestMethod("POST");
         connection.setConnectTimeout(30000);
         connection.setReadTimeout(60000);
         connection.setDoOutput(true);
         connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Accept", "application/json, text/event-stream");
         if (bearerKey != null && !bearerKey.trim().isEmpty()) {
             connection.setRequestProperty("Authorization", "Bearer " + bearerKey.trim());
         }
@@ -219,7 +286,11 @@ public final class ProviderPlanner {
                 connection.setRequestProperty(key, extraHeaders.optString(key, ""));
             }
         }
+        return connection;
+    }
 
+    private HttpResult post(String endpoint, String bearerKey, JSONObject extraHeaders, JSONObject body) throws Exception {
+        HttpURLConnection connection = openPost(endpoint, bearerKey, extraHeaders);
         byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
         try (OutputStream os = connection.getOutputStream()) {
             os.write(payload);
