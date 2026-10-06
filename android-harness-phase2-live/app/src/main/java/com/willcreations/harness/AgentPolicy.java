@@ -18,7 +18,7 @@ public final class AgentPolicy {
         if (action == null) return Decision.deny("No action");
         if (snapshot == null) return Decision.deny("No UI snapshot");
         if (!snapshot.packageName.isEmpty() && !ALLOWED_PACKAGES.contains(snapshot.packageName)) {
-            return Decision.deny("Package is outside Phase 4 allowlist: " + snapshot.packageName);
+            return Decision.deny("Package is outside allowlist: " + snapshot.packageName);
         }
 
         switch (action.type) {
@@ -26,6 +26,11 @@ public final class AgentPolicy {
             case BACK:
             case READ_PACKAGES:
             case READ_PROCESSES:
+            case DEV_ENV_PROBE:
+            case DEV_GIT_STATUS:
+            case DEV_GIT_DIFF:
+            case DEV_TESTS:
+            case DEV_BUILD:
             case WAIT:
             case FINISH:
             case FAIL:
