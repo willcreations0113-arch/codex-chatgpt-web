@@ -6,8 +6,8 @@ android {
         applicationId 'com.willcreations.harness'
         minSdk 30
         targetSdk 35
-        versionCode 7
-        versionName '0.7.0'
+        versionCode 8
+        versionName '0.8.0'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -20,5 +20,6 @@ dependencies {
     def shizukuVersion = '13.1.5'
     implementation "dev.rikka.shizuku:api:$shizukuVersion"
     implementation "dev.rikka.shizuku:provider:$shizukuVersion"
+    implementation "com.github.termux.termux-app:termux-shared:0.118.0"
     testImplementation 'junit:junit:4.13.2'
 }
