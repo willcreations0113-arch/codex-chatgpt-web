@@ -21,6 +21,7 @@ public final class TermuxCommandBridge {
         ENV_PROBE,
         PREPARE_WORKSPACE,
         SETUP_TOOLCHAIN,
+        SETUP_ANDROID_SDK,
         GIT_STATUS,
         GIT_DIFF,
         TESTS,
@@ -85,7 +86,8 @@ public final class TermuxCommandBridge {
 
             context.startService(intent);
 
-            long timeoutSeconds = capability == Capability.SETUP_TOOLCHAIN ? 600 :
+            long timeoutSeconds =
+                    (capability == Capability.SETUP_TOOLCHAIN || capability == Capability.SETUP_ANDROID_SDK) ? 900 :
                     (capability == Capability.BUILD || capability == Capability.TESTS ? 300 : 90);
 
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
@@ -138,12 +140,13 @@ public final class TermuxCommandBridge {
                 return "set +e; " +
                         "echo 'PHASE5_ENV'; " +
                         "echo ARCH=$(uname -m); echo PREFIX=$PREFIX; " +
-                        "for c in git java javac gradle aapt2 apksigner adb; do " +
+                        "for c in git java javac gradle aapt aapt2 aidl zipalign d8 apksigner adb; do " +
                         "printf '%s=' \"$c\"; command -v \"$c\" || echo MISSING; done; " +
                         "git --version 2>/dev/null || true; " +
                         "java -version 2>&1 | head -n 2 || true; " +
                         "gradle --version 2>/dev/null | head -n 8 || true; " +
                         "aapt2 version 2>/dev/null || true; " +
+                        "test -f \"$HOME/Android/Sdk/platforms/android-35/android.jar\" && echo SDK35=READY || echo SDK35=MISSING; " +
                         "test -d " + quote(REPO_ROOT) + " && echo WORKSPACE=READY || echo WORKSPACE=MISSING";
             case PREPARE_WORKSPACE:
                 return "set -eu; mkdir -p \"$HOME/will-harness-workspace\"; " +
@@ -156,9 +159,36 @@ public final class TermuxCommandBridge {
             case SETUP_TOOLCHAIN:
                 return "set -eu; " +
                         "pkg update -y; " +
-                        "pkg install -y git openjdk-21 gradle aapt2 apksigner curl unzip; " +
+                        "pkg install -y git openjdk-21 gradle aapt aapt2 aidl apksigner d8 android-tools curl unzip; " +
                         "echo 'TOOLCHAIN_PACKAGES_INSTALLED'; " +
-                        "git --version; java -version 2>&1 | head -n 2; gradle --version | head -n 8; aapt2 version";
+                        "git --version; java -version 2>&1 | head -n 2; gradle --version | head -n 8; " +
+                        "aapt2 version; aidl --version 2>&1 | head -n 2 || true; adb version | head -n 2";
+            case SETUP_ANDROID_SDK:
+                return "set -eu; " +
+                        "ANDROID_HOME=\"$HOME/Android/Sdk\"; CACHE=\"$HOME/.cache/will-harness\"; " +
+                        "mkdir -p \"$ANDROID_HOME\" \"$CACHE\"; " +
+                        "TOOLS=\"$CACHE/commandlinetools-linux-9123335_latest.zip\"; " +
+                        "if [ ! -x \"$ANDROID_HOME/cmdline-tools/bin/sdkmanager\" ] && [ ! -x \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then " +
+                        "curl -fL --retry 3 --connect-timeout 30 " +
+                        "https://dl.google.com/android/repository/commandlinetools-linux-9123335_latest.zip -o \"$TOOLS\"; " +
+                        "echo '0bebf59339eaa534f4217f8aa0972d14dc49e7207be225511073c661ae01da0a  '\"$TOOLS\" | sha256sum -c -; " +
+                        "rm -rf \"$ANDROID_HOME/cmdline-tools\"; unzip -q \"$TOOLS\" -d \"$ANDROID_HOME\"; fi; " +
+                        "if [ -x \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then SDKMANAGER=\"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"; " +
+                        "else SDKMANAGER=\"$ANDROID_HOME/cmdline-tools/bin/sdkmanager\"; fi; " +
+                        "yes | \"$SDKMANAGER\" --sdk_root=\"$ANDROID_HOME\" --licenses >/dev/null || true; " +
+                        "yes | \"$SDKMANAGER\" --sdk_root=\"$ANDROID_HOME\" \"platforms;android-35\" \"build-tools;35.0.0\"; " +
+                        "BT=\"$ANDROID_HOME/build-tools/35.0.0\"; " +
+                        "for t in aapt aapt2 aidl zipalign; do if command -v \"$t\" >/dev/null 2>&1; then " +
+                        "if [ -e \"$BT/$t\" ] && [ ! -e \"$BT/$t.google\" ]; then mv \"$BT/$t\" \"$BT/$t.google\"; fi; " +
+                        "cp \"$(command -v \"$t\")\" \"$BT/$t\"; chmod 700 \"$BT/$t\"; fi; done; " +
+                        "mkdir -p \"$HOME/.gradle\"; " +
+                        "PROP=\"$HOME/.gradle/gradle.properties\"; touch \"$PROP\"; " +
+                        "grep -q '^android.aapt2FromMavenOverride=' \"$PROP\" && " +
+                        "sed -i 's|^android.aapt2FromMavenOverride=.*|android.aapt2FromMavenOverride='\"$PREFIX\"'/bin/aapt2|' \"$PROP\" || " +
+                        "echo 'android.aapt2FromMavenOverride='\"$PREFIX\"'/bin/aapt2' >> \"$PROP\"; " +
+                        "if [ -d " + quote(PROJECT_ROOT) + " ]; then echo 'sdk.dir='\"$ANDROID_HOME\" > " + quote(PROJECT_ROOT + "/local.properties") + "; fi; " +
+                        "test -f \"$ANDROID_HOME/platforms/android-35/android.jar\"; " +
+                        "echo 'ANDROID_SDK_READY'; echo ANDROID_HOME=\"$ANDROID_HOME\"; ls -lh \"$ANDROID_HOME/platforms/android-35/android.jar\"";
             case GIT_STATUS:
                 return "set -eu; cd " + quote(REPO_ROOT) + "; git status --short --branch";
             case GIT_DIFF:
@@ -186,7 +216,8 @@ public final class TermuxCommandBridge {
         switch (capability) {
             case ENV_PROBE: return "Checks the phone-local developer environment.";
             case PREPARE_WORKSPACE: return "Creates the fixed Will Harness workspace and clones the allowed repository.";
-            case SETUP_TOOLCHAIN: return "Installs the fixed developer toolchain packages inside Termux.";
+            case SETUP_TOOLCHAIN: return "Installs the fixed ARM-native developer toolchain packages inside Termux.";
+            case SETUP_ANDROID_SDK: return "Installs Android SDK 35 and overlays ARM-native Android build tools.";
             case GIT_STATUS: return "Reads git status in the fixed Will Harness workspace.";
             case GIT_DIFF: return "Reads git diff in the fixed Will Harness workspace.";
             case TESTS: return "Runs unit tests for the fixed Will Harness Android project.";
