@@ -14,6 +14,10 @@ public final class AgentRunner {
         void onAgentLog(String line);
     }
 
+    private interface CredentialProvider {
+        String get() throws Exception;
+    }
+
     private static final int MAX_STEPS = 8;
 
     private final TaskStore store;
@@ -41,6 +45,18 @@ public final class AgentRunner {
     }
 
     public void start(String goal, ProviderConfig config, String apiKey) {
+        startInternal(goal, config, () -> apiKey);
+    }
+
+    public void startWithChatGpt(String goal, ProviderConfig config, ChatGptAuthManager auth) {
+        if (auth == null) {
+            emitState("AI_FAILED: ChatGPT認証マネージャーがありません");
+            return;
+        }
+        startInternal(goal, config, auth::getValidAccessToken);
+    }
+
+    private void startInternal(String goal, ProviderConfig config, CredentialProvider credentials) {
         String normalizedGoal = goal == null ? "" : goal.trim();
         if (normalizedGoal.isEmpty()) {
             emitState("AI_FAILED: 目的を入力してください");
@@ -55,7 +71,7 @@ public final class AgentRunner {
             return;
         }
         cancelled.set(false);
-        worker.execute(() -> runLoop(normalizedGoal, config, apiKey));
+        worker.execute(() -> runLoop(normalizedGoal, config, credentials));
     }
 
     public void cancel() {
@@ -68,7 +84,7 @@ public final class AgentRunner {
         worker.shutdownNow();
     }
 
-    private void runLoop(String goal, ProviderConfig config, String apiKey) {
+    private void runLoop(String goal, ProviderConfig config, CredentialProvider credentials) {
         StringBuilder history = new StringBuilder();
         try {
             config.validate();
@@ -99,7 +115,15 @@ public final class AgentRunner {
                     return;
                 }
 
-                AgentAction action = planner.plan(config, apiKey, goal, before, history.toString());
+                String credential = credentials.get();
+                if (credential == null || credential.trim().isEmpty()) {
+                    fail(config.usesChatGptLogin()
+                            ? "ChatGPTログインが必要です"
+                            : config.type.label + " APIキーが未設定です", step);
+                    return;
+                }
+
+                AgentAction action = planner.plan(config, credential, goal, before, history.toString());
                 emitLog("PLAN: " + action + " / " + action.rationale);
 
                 AgentPolicy.Decision decision = policy.check(action, before);
@@ -133,7 +157,7 @@ public final class AgentRunner {
                 }
 
                 ToolResult result = tools.execute(action);
-                String safeResult = result.message;
+                String safeResult = result.message == null ? "" : result.message;
                 if (safeResult.length() > 4500) safeResult = safeResult.substring(0, 4500) + "…";
                 emitLog("TOOL: " + (result.ok ? "OK " : "FAIL ") + safeResult);
                 appendHistory(history, step, action, safeResult);
