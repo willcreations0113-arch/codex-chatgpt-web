@@ -34,6 +34,16 @@ public final class ToolRegistry {
                     return shizuku == null
                             ? ToolResult.fail("Shizuku bridge unavailable")
                             : shizuku.agentListProcesses();
+                case DEV_ENV_PROBE:
+                    return TermuxCommandBridge.run(context, TermuxCommandBridge.Capability.ENV_PROBE);
+                case DEV_GIT_STATUS:
+                    return TermuxCommandBridge.run(context, TermuxCommandBridge.Capability.GIT_STATUS);
+                case DEV_GIT_DIFF:
+                    return TermuxCommandBridge.run(context, TermuxCommandBridge.Capability.GIT_DIFF);
+                case DEV_TESTS:
+                    return TermuxCommandBridge.run(context, TermuxCommandBridge.Capability.TESTS);
+                case DEV_BUILD:
+                    return TermuxCommandBridge.run(context, TermuxCommandBridge.Capability.BUILD);
                 case WAIT:
                     return ToolResult.ok("WAIT");
                 case FINISH:
