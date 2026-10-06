@@ -13,9 +13,9 @@ public final class ProviderStore {
     }
 
     public ProviderConfig.Type selectedType() {
-        String value = prefs.getString(SELECTED, ProviderConfig.Type.OPENAI.name());
+        String value = prefs.getString(SELECTED, ProviderConfig.Type.CHATGPT_LOGIN.name());
         try { return ProviderConfig.Type.valueOf(value); }
-        catch (Exception e) { return ProviderConfig.Type.OPENAI; }
+        catch (Exception e) { return ProviderConfig.Type.CHATGPT_LOGIN; }
     }
 
     public ProviderConfig load(ProviderConfig.Type type) {
