@@ -28,21 +28,21 @@ public final class SecretStore {
         prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    public synchronized void saveApiKey(String providerId, String apiKey) throws Exception {
-        String id = normalize(providerId);
-        if (apiKey == null || apiKey.trim().isEmpty()) throw new IllegalArgumentException("API key is empty");
+    public synchronized void saveSecret(String name, String value) throws Exception {
+        String id = normalize(name);
+        if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException("Secret is empty");
         SecretKey key = getOrCreateKey();
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key);
-        byte[] encrypted = cipher.doFinal(apiKey.trim().getBytes(StandardCharsets.UTF_8));
+        byte[] encrypted = cipher.doFinal(value.trim().getBytes(StandardCharsets.UTF_8));
         prefs.edit()
                 .putString(cipherKey(id), Base64.encodeToString(encrypted, Base64.NO_WRAP))
                 .putString(ivKey(id), Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
                 .apply();
     }
 
-    public synchronized String loadApiKey(String providerId) throws Exception {
-        String id = normalize(providerId);
+    public synchronized String loadSecret(String name) throws Exception {
+        String id = normalize(name);
         String cipherText = prefs.getString(cipherKey(id), null);
         String ivText = prefs.getString(ivKey(id), null);
 
@@ -59,16 +59,21 @@ public final class SecretStore {
         return new String(plain, StandardCharsets.UTF_8);
     }
 
-    public boolean hasApiKey(String providerId) {
-        String id = normalize(providerId);
+    public boolean hasSecret(String name) {
+        String id = normalize(name);
         if (prefs.contains(cipherKey(id)) && prefs.contains(ivKey(id))) return true;
         return "openai".equals(id) && prefs.contains(LEGACY_OPENAI_CIPHER) && prefs.contains(LEGACY_OPENAI_IV);
     }
 
-    public synchronized void clearApiKey(String providerId) {
-        String id = normalize(providerId);
+    public synchronized void clearSecret(String name) {
+        String id = normalize(name);
         prefs.edit().remove(cipherKey(id)).remove(ivKey(id)).apply();
     }
+
+    public void saveApiKey(String providerId, String apiKey) throws Exception { saveSecret(providerId, apiKey); }
+    public String loadApiKey(String providerId) throws Exception { return loadSecret(providerId); }
+    public boolean hasApiKey(String providerId) { return hasSecret(providerId); }
+    public void clearApiKey(String providerId) { clearSecret(providerId); }
 
     // Backward-compatible methods used by older builds.
     public void saveOpenAiKey(String apiKey) throws Exception { saveApiKey("openai", apiKey); }
@@ -77,7 +82,7 @@ public final class SecretStore {
 
     private String normalize(String providerId) {
         String id = providerId == null ? "" : providerId.trim().toLowerCase();
-        if (id.isEmpty()) throw new IllegalArgumentException("Provider ID is empty");
+        if (id.isEmpty()) throw new IllegalArgumentException("Secret ID is empty");
         return id.replaceAll("[^a-z0-9_]+", "_");
     }
 
