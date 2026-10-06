@@ -1,4 +1,4 @@
-name: Android Harness Phase 4
+name: Android Harness Phase 5
 on:
   push:
     branches: [android-harness-phase2-build]
@@ -26,5 +26,5 @@ jobs:
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: will-harness-phase4-debug-apk
+          name: will-harness-phase5-debug-apk
           path: android-harness-phase2-live/app/build/outputs/apk/debug/app-debug.apk
