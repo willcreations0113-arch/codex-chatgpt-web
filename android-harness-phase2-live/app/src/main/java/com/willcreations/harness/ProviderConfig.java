@@ -2,7 +2,8 @@ package com.willcreations.harness;
 
 public final class ProviderConfig {
     public enum Type {
-        OPENAI("OpenAI"),
+        CHATGPT_LOGIN("ChatGPTログイン（Plus / Pro）"),
+        OPENAI("OpenAI API key"),
         ANTHROPIC("Anthropic Claude"),
         GEMINI("Google Gemini"),
         XAI("xAI Grok"),
@@ -15,7 +16,7 @@ public final class ProviderConfig {
 
         public static Type fromLabel(String label) {
             for (Type t : values()) if (t.label.equals(label)) return t;
-            return OPENAI;
+            return CHATGPT_LOGIN;
         }
     }
 
@@ -24,13 +25,15 @@ public final class ProviderConfig {
     public final String baseUrl;
 
     public ProviderConfig(Type type, String model, String baseUrl) {
-        this.type = type == null ? Type.OPENAI : type;
+        this.type = type == null ? Type.CHATGPT_LOGIN : type;
         this.model = model == null ? "" : model.trim();
         this.baseUrl = trimSlash(baseUrl == null ? "" : baseUrl.trim());
     }
 
     public static ProviderConfig defaults(Type type) {
         switch (type) {
+            case CHATGPT_LOGIN:
+                return new ProviderConfig(type, "gpt-6.1-sol", "https://api.openai.com/v1");
             case ANTHROPIC:
                 return new ProviderConfig(type, "claude-sonnet-5-5", "https://api.anthropic.com");
             case GEMINI:
@@ -50,10 +53,15 @@ public final class ProviderConfig {
     }
 
     public String id() { return type.name().toLowerCase(); }
+    public boolean usesChatGptLogin() { return type == Type.CHATGPT_LOGIN; }
+    public boolean requiresApiKey() { return type != Type.CHATGPT_LOGIN; }
 
     public void validate() {
         if (model.isEmpty()) throw new IllegalArgumentException("Model is empty");
         if (baseUrl.isEmpty()) throw new IllegalArgumentException("Base URL is empty");
+        if (type == Type.CHATGPT_LOGIN && !"https://api.openai.com/v1".equals(baseUrl)) {
+            throw new IllegalArgumentException("ChatGPT login token can only be sent to https://api.openai.com/v1");
+        }
         if (!(baseUrl.startsWith("https://") || baseUrl.startsWith("http://127.0.0.1") || baseUrl.startsWith("http://localhost"))) {
             throw new IllegalArgumentException("Base URL must use HTTPS (localhost is allowed)");
         }
