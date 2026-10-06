@@ -29,6 +29,7 @@ public class MainActivity extends Activity implements
     private TextView shizukuStatus;
     private TextView providerStatus;
     private TextView chatGptStatus;
+    private TextView devStatus;
     private TextView agentStatus;
     private TextView output;
     private Spinner providerSpinner;
@@ -67,6 +68,7 @@ public class MainActivity extends Activity implements
         shizukuStatus = text();
         providerStatus = text();
         chatGptStatus = text();
+        devStatus = text();
         agentStatus = text();
         agentStatus.setText("AI Agent: idle");
 
@@ -114,6 +116,22 @@ public class MainActivity extends Activity implements
         Button copyError = button("エラーをコピー", this::copyLastError);
         Button copyLog = button("ログ全体をコピー", this::copyFullLog);
 
+        Button openTermux = button("Termuxを開く", this::openTermux);
+        Button devProbe = button("Termux環境チェック", () ->
+                runDeveloperCapability("Developer environment", TermuxCommandBridge.Capability.ENV_PROBE));
+        Button devSetup = button("開発Toolchainセットアップ", () ->
+                runDeveloperCapability("Toolchain setup", TermuxCommandBridge.Capability.SETUP_TOOLCHAIN));
+        Button workspaceSetup = button("Workspace準備", () ->
+                runDeveloperCapability("Workspace setup", TermuxCommandBridge.Capability.PREPARE_WORKSPACE));
+        Button gitStatus = button("Git status", () ->
+                runDeveloperCapability("Git status", TermuxCommandBridge.Capability.GIT_STATUS));
+        Button gitDiff = button("Git diff", () ->
+                runDeveloperCapability("Git diff", TermuxCommandBridge.Capability.GIT_DIFF));
+        Button runTests = button("Unit tests", () ->
+                runDeveloperCapability("Unit tests", TermuxCommandBridge.Capability.TESTS));
+        Button buildApk = button("APKビルド", () ->
+                runDeveloperCapability("APK build", TermuxCommandBridge.Capability.BUILD));
+
         apiKeyControls = new LinearLayout(this);
         apiKeyControls.setOrientation(LinearLayout.VERTICAL);
         add(apiKeyControls, apiKeyInput);
@@ -156,6 +174,22 @@ public class MainActivity extends Activity implements
         add(root, agentStatus);
         add(root, copyError);
         add(root, copyLog);
+
+        TextView phase5 = text();
+        phase5.setText("Phase 5 — Phone-local Developer Worker");
+        phase5.setTextSize(20);
+        phase5.setPadding(0, dp(18), 0, dp(8));
+        add(root, phase5);
+        add(root, devStatus);
+        add(root, openTermux);
+        add(root, devProbe);
+        add(root, devSetup);
+        add(root, workspaceSetup);
+        add(root, gitStatus);
+        add(root, gitDiff);
+        add(root, runTests);
+        add(root, buildApk);
+
         add(root, output);
 
         ScrollView scroll = new ScrollView(this);
@@ -185,6 +219,7 @@ public class MainActivity extends Activity implements
         updateProviderModeUi(selected);
         refreshProviderStatus();
         refreshChatGptStatus();
+        refreshDeveloperStatus();
     }
 
     private TextView text() {
@@ -343,6 +378,37 @@ public class MainActivity extends Activity implements
                 : "ChatGPT: not connected");
     }
 
+    private void refreshDeveloperStatus() {
+        if (devStatus == null) return;
+        boolean installed = TermuxCommandBridge.isInstalled(this);
+        boolean permission = checkSelfPermission("com.termux.permission.RUN_COMMAND")
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        devStatus.setText("Developer runtime: Termux=" + (installed ? "installed" : "not installed")
+                + " / RUN_COMMAND=" + (permission ? "granted" : "not granted"));
+    }
+
+    private void openTermux() {
+        Intent launch = getPackageManager().getLaunchIntentForPackage("com.termux");
+        if (launch == null) {
+            setError("Termuxがインストールされていません");
+            return;
+        }
+        startActivity(launch);
+    }
+
+    private void runDeveloperCapability(String title, TermuxCommandBridge.Capability capability) {
+        devStatus.setText("Developer: " + title + " 実行中…");
+        new Thread(() -> {
+            ToolResult result = TermuxCommandBridge.run(getApplicationContext(), capability);
+            runOnUiThread(() -> {
+                devStatus.setText("Developer: " + title + " / " + (result.ok ? "PASS" : "FAIL"));
+                output.setText("[" + title + "]\n" + result.message);
+                if (!result.ok) lastError = result.message;
+                refreshDeveloperStatus();
+            });
+        }, "will-harness-developer").start();
+    }
+
     private void copyLastError() {
         if (lastError == null || lastError.trim().isEmpty()) {
             Toast.makeText(this, "コピーするエラーはありません", Toast.LENGTH_SHORT).show();
@@ -391,6 +457,7 @@ public class MainActivity extends Activity implements
         status.setText("Task state: " + store.state() + " / attempt=" + store.attempt());
         refreshProviderStatus();
         refreshChatGptStatus();
+        refreshDeveloperStatus();
     }
 
     @Override
