@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
@@ -117,6 +118,8 @@ public class MainActivity extends Activity implements
         Button copyLog = button("ログ全体をコピー", this::copyFullLog);
 
         Button openTermux = button("Termuxを開く", this::openTermux);
+        Button termuxPermission = button("Termux実行権限の設定を開く", this::openRunCommandPermissionSettings);
+        Button copyTermuxSetup = button("Termux初期設定コマンドをコピー", this::copyTermuxSetupCommand);
         Button devProbe = button("Termux環境チェック", () ->
                 runDeveloperCapability("Developer environment", TermuxCommandBridge.Capability.ENV_PROBE));
         Button devSetup = button("開発Toolchainセットアップ", () ->
@@ -182,6 +185,8 @@ public class MainActivity extends Activity implements
         add(root, phase5);
         add(root, devStatus);
         add(root, openTermux);
+        add(root, termuxPermission);
+        add(root, copyTermuxSetup);
         add(root, devProbe);
         add(root, devSetup);
         add(root, workspaceSetup);
@@ -394,6 +399,31 @@ public class MainActivity extends Activity implements
             return;
         }
         startActivity(launch);
+    }
+
+    private void openRunCommandPermissionSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+            Toast.makeText(this,
+                    "権限 → 追加の権限 →「Run commands in Termux environment」を許可してください",
+                    Toast.LENGTH_LONG).show();
+        } catch (Throwable t) {
+            setError("権限設定を開けません: " + safeMessage(t));
+        }
+    }
+
+    private void copyTermuxSetupCommand() {
+        String command = "mkdir -p ~/.termux; " +
+                "touch ~/.termux/termux.properties; " +
+                "grep -q '^allow-external-apps *= *true' ~/.termux/termux.properties || " +
+                "echo 'allow-external-apps=true' >> ~/.termux/termux.properties; " +
+                "termux-reload-settings";
+        copyToClipboard("Will Harness Termux setup", command);
+        Toast.makeText(this,
+                "コピーしました。Termuxを開いて貼り付け、Enterしてください",
+                Toast.LENGTH_LONG).show();
     }
 
     private void runDeveloperCapability(String title, TermuxCommandBridge.Capability capability) {
