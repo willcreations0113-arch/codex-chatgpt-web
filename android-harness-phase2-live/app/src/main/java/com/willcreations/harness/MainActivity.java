@@ -124,6 +124,8 @@ public class MainActivity extends Activity implements
                 runDeveloperCapability("Developer environment", TermuxCommandBridge.Capability.ENV_PROBE));
         Button devSetup = button("開発Toolchainセットアップ", () ->
                 runDeveloperCapability("Toolchain setup", TermuxCommandBridge.Capability.SETUP_TOOLCHAIN));
+        Button sdkSetup = button("Android SDK 35セットアップ", () ->
+                runDeveloperCapability("Android SDK setup", TermuxCommandBridge.Capability.SETUP_ANDROID_SDK));
         Button workspaceSetup = button("Workspace準備", () ->
                 runDeveloperCapability("Workspace setup", TermuxCommandBridge.Capability.PREPARE_WORKSPACE));
         Button gitStatus = button("Git status", () ->
@@ -189,6 +191,7 @@ public class MainActivity extends Activity implements
         add(root, copyTermuxSetup);
         add(root, devProbe);
         add(root, devSetup);
+        add(root, sdkSetup);
         add(root, workspaceSetup);
         add(root, gitStatus);
         add(root, gitDiff);
