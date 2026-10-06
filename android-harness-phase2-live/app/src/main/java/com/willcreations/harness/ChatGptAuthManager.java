@@ -288,6 +288,12 @@ public final class ChatGptAuthManager {
                 String jwks = getText(JWKS);
                 OpenAiIdTokenVerifier.Claims claims = verifier.verify(idToken, jwks, issuedClient, nonce);
 
+                String previousSubject = prefs.getString(SUBJECT, "");
+                if (!firstRegistration && !previousSubject.isEmpty() && !previousSubject.equals(claims.subject)) {
+                    sendBrowserResponse(socket, false, "以前のChatGPTアカウントと一致しません。");
+                    throw new SecurityException("Returning ChatGPT identity changed");
+                }
+
                 secrets.saveSecret(ACCESS_SECRET, accessToken);
                 secrets.saveSecret(REFRESH_SECRET, refreshToken);
                 secrets.saveSecret(ID_SECRET, idToken);
