@@ -28,3 +28,8 @@ jobs:
         with:
           name: will-harness-phase5-debug-apk
           path: android-harness-phase2-live/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload apksigner tool
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apksigner-tool
+          path: /usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar
