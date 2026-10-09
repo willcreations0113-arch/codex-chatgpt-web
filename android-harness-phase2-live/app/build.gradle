@@ -3,7 +3,7 @@ android {
     namespace 'com.willcreations.harness'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.willcreations.harness'
+        applicationId 'com.willcreations.harness.stable'
         minSdk 30
         targetSdk 35
         versionCode 8
