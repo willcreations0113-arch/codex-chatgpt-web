@@ -22,6 +22,7 @@ public final class TermuxCommandBridge {
         PREPARE_WORKSPACE,
         SETUP_TOOLCHAIN,
         SETUP_ANDROID_SDK,
+        SETUP_PHASE5A,
         GIT_STATUS,
         GIT_DIFF,
         TESTS,
@@ -87,6 +88,7 @@ public final class TermuxCommandBridge {
             context.startService(intent);
 
             long timeoutSeconds =
+                    capability == Capability.SETUP_PHASE5A ? 1800 :
                     (capability == Capability.SETUP_TOOLCHAIN || capability == Capability.SETUP_ANDROID_SDK) ? 900 :
                     (capability == Capability.BUILD || capability == Capability.TESTS ? 300 : 90);
 
@@ -138,15 +140,18 @@ public final class TermuxCommandBridge {
         switch (capability) {
             case ENV_PROBE:
                 return "set +e; " +
-                        "echo 'PHASE5_ENV'; " +
-                        "echo ARCH=$(uname -m); echo PREFIX=$PREFIX; " +
-                        "for c in git java javac gradle aapt aapt2 aidl zipalign d8 apksigner adb; do " +
+                        "ANDROID_HOME=\"$HOME/Android/Sdk\"; PINNED_GRADLE=\"$HOME/.local/share/will-harness/gradle-8.10.2/bin/gradle\"; " +
+                        "echo 'PHASE5A_ENV'; " +
+                        "echo ARCH=$(uname -m); echo PREFIX=$PREFIX; echo ANDROID_HOME=$ANDROID_HOME; " +
+                        "if grep -Eq '^allow-external-apps[[:space:]]*=[[:space:]]*true' \"$HOME/.termux/termux.properties\" 2>/dev/null; then echo ALLOW_EXTERNAL_APPS=READY; else echo ALLOW_EXTERNAL_APPS=MISSING; fi; " +
+                        "for c in git java javac aapt aapt2 aidl zipalign d8 apksigner adb; do " +
                         "printf '%s=' \"$c\"; command -v \"$c\" || echo MISSING; done; " +
                         "git --version 2>/dev/null || true; " +
                         "java -version 2>&1 | head -n 2 || true; " +
-                        "gradle --version 2>/dev/null | head -n 8 || true; " +
+                        "if [ -x \"$PINNED_GRADLE\" ]; then \"$PINNED_GRADLE\" --version 2>/dev/null | head -n 8; echo GRADLE_8_10_2=READY; else echo GRADLE_8_10_2=MISSING; fi; " +
                         "aapt2 version 2>/dev/null || true; " +
-                        "test -f \"$HOME/Android/Sdk/platforms/android-35/android.jar\" && echo SDK35=READY || echo SDK35=MISSING; " +
+                        "test -f \"$ANDROID_HOME/platforms/android-35/android.jar\" && echo SDK35=READY || echo SDK35=MISSING; " +
+                        "test -x \"$ANDROID_HOME/build-tools/35.0.0/aapt2\" && echo BUILD_TOOLS_ARM=READY || echo BUILD_TOOLS_ARM=MISSING; " +
                         "test -d " + quote(REPO_ROOT) + " && echo WORKSPACE=READY || echo WORKSPACE=MISSING";
             case PREPARE_WORKSPACE:
                 return "set -eu; mkdir -p \"$HOME/will-harness-workspace\"; " +
@@ -154,41 +159,56 @@ public final class TermuxCommandBridge {
                         "if [ ! -d codex-chatgpt-web/.git ]; then " +
                         "git clone --single-branch --branch android-harness-phase2-build " +
                         "https://github.com/willcreations0113-arch/codex-chatgpt-web.git codex-chatgpt-web; " +
-                        "else echo 'workspace already exists'; fi; " +
+                        "else cd codex-chatgpt-web; " +
+                        "if git diff --quiet && git diff --cached --quiet; then " +
+                        "git fetch origin android-harness-phase2-build; git checkout android-harness-phase2-build; git pull --ff-only; " +
+                        "else echo 'WORKSPACE_DIRTY_NOT_UPDATED'; fi; cd ..; fi; " +
                         "cd codex-chatgpt-web; git status --short --branch";
             case SETUP_TOOLCHAIN:
                 return "set -eu; " +
                         "pkg update -y; " +
-                        "pkg install -y git openjdk-21 gradle aapt aapt2 aidl apksigner d8 android-tools curl unzip; " +
+                        "pkg install -y git openjdk-21 gradle aapt apksigner d8 android-tools curl unzip coreutils; " +
+                        "for c in git java javac aapt aapt2 aidl zipalign d8 apksigner adb curl unzip sha256sum; do " +
+                        "command -v \"$c\" >/dev/null 2>&1 || { echo TOOL_MISSING:$c; exit 21; }; done; " +
                         "echo 'TOOLCHAIN_PACKAGES_INSTALLED'; " +
-                        "git --version; java -version 2>&1 | head -n 2; gradle --version | head -n 8; " +
-                        "aapt2 version; aidl --version 2>&1 | head -n 2 || true; adb version | head -n 2";
+                        "git --version; java -version 2>&1 | head -n 2; " +
+                        "aapt2 version; adb version | head -n 2";
             case SETUP_ANDROID_SDK:
                 return "set -eu; " +
                         "ANDROID_HOME=\"$HOME/Android/Sdk\"; CACHE=\"$HOME/.cache/will-harness\"; " +
-                        "mkdir -p \"$ANDROID_HOME\" \"$CACHE\"; " +
-                        "TOOLS=\"$CACHE/commandlinetools-linux-9123335_latest.zip\"; " +
-                        "if [ ! -x \"$ANDROID_HOME/cmdline-tools/bin/sdkmanager\" ] && [ ! -x \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then " +
-                        "curl -fL --retry 3 --connect-timeout 30 " +
-                        "https://dl.google.com/android/repository/commandlinetools-linux-9123335_latest.zip -o \"$TOOLS\"; " +
-                        "echo '0bebf59339eaa534f4217f8aa0972d14dc49e7207be225511073c661ae01da0a  '\"$TOOLS\" | sha256sum -c -; " +
-                        "rm -rf \"$ANDROID_HOME/cmdline-tools\"; unzip -q \"$TOOLS\" -d \"$ANDROID_HOME\"; fi; " +
-                        "if [ -x \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then SDKMANAGER=\"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"; " +
-                        "else SDKMANAGER=\"$ANDROID_HOME/cmdline-tools/bin/sdkmanager\"; fi; " +
+                        "mkdir -p \"$ANDROID_HOME/cmdline-tools\" \"$CACHE\" \"$HOME/.local/share/will-harness\"; " +
+                        "TOOLS=\"$CACHE/commandlinetools-linux-15859902_latest.zip\"; " +
+                        "if [ ! -f \"$TOOLS\" ]; then curl -fL --retry 3 --connect-timeout 30 " +
+                        "https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip -o \"$TOOLS\"; fi; " +
+                        "echo '4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583  '\"$TOOLS\" | sha256sum -c -; " +
+                        "if [ ! -x \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then " +
+                        "rm -rf \"$CACHE/cmdline-extract\" \"$ANDROID_HOME/cmdline-tools/latest\"; " +
+                        "mkdir -p \"$CACHE/cmdline-extract\"; unzip -q \"$TOOLS\" -d \"$CACHE/cmdline-extract\"; " +
+                        "mv \"$CACHE/cmdline-extract/cmdline-tools\" \"$ANDROID_HOME/cmdline-tools/latest\"; fi; " +
+                        "SDKMANAGER=\"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"; " +
                         "yes | \"$SDKMANAGER\" --sdk_root=\"$ANDROID_HOME\" --licenses >/dev/null || true; " +
                         "yes | \"$SDKMANAGER\" --sdk_root=\"$ANDROID_HOME\" \"platforms;android-35\" \"build-tools;35.0.0\"; " +
                         "BT=\"$ANDROID_HOME/build-tools/35.0.0\"; " +
-                        "for t in aapt aapt2 aidl zipalign; do if command -v \"$t\" >/dev/null 2>&1; then " +
-                        "if [ -e \"$BT/$t\" ] && [ ! -e \"$BT/$t.google\" ]; then mv \"$BT/$t\" \"$BT/$t.google\"; fi; " +
-                        "cp \"$(command -v \"$t\")\" \"$BT/$t\"; chmod 700 \"$BT/$t\"; fi; done; " +
-                        "mkdir -p \"$HOME/.gradle\"; " +
-                        "PROP=\"$HOME/.gradle/gradle.properties\"; touch \"$PROP\"; " +
+                        "for t in aapt aapt2 aidl zipalign; do " +
+                        "NATIVE=$(command -v \"$t\" || true); [ -n \"$NATIVE\" ] || { echo ARM_TOOL_MISSING:$t; exit 22; }; " +
+                        "if [ -e \"$BT/$t\" ] && [ ! -e \"$BT/$t.google-x86_64\" ]; then mv \"$BT/$t\" \"$BT/$t.google-x86_64\"; fi; " +
+                        "cp \"$NATIVE\" \"$BT/$t\"; chmod 700 \"$BT/$t\"; done; " +
+                        "GRADLE_ZIP=\"$CACHE/gradle-8.10.2-bin.zip\"; GRADLE_ROOT=\"$HOME/.local/share/will-harness/gradle-8.10.2\"; " +
+                        "if [ ! -x \"$GRADLE_ROOT/bin/gradle\" ]; then " +
+                        "if [ ! -f \"$GRADLE_ZIP\" ]; then curl -fL --retry 3 --connect-timeout 30 " +
+                        "https://services.gradle.org/distributions/gradle-8.10.2-bin.zip -o \"$GRADLE_ZIP\"; fi; " +
+                        "echo '31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26  '\"$GRADLE_ZIP\" | sha256sum -c -; " +
+                        "rm -rf \"$GRADLE_ROOT\"; unzip -q \"$GRADLE_ZIP\" -d \"$HOME/.local/share/will-harness\"; fi; " +
+                        "mkdir -p \"$HOME/.gradle\"; PROP=\"$HOME/.gradle/gradle.properties\"; touch \"$PROP\"; " +
                         "grep -q '^android.aapt2FromMavenOverride=' \"$PROP\" && " +
                         "sed -i 's|^android.aapt2FromMavenOverride=.*|android.aapt2FromMavenOverride='\"$PREFIX\"'/bin/aapt2|' \"$PROP\" || " +
                         "echo 'android.aapt2FromMavenOverride='\"$PREFIX\"'/bin/aapt2' >> \"$PROP\"; " +
                         "if [ -d " + quote(PROJECT_ROOT) + " ]; then echo 'sdk.dir='\"$ANDROID_HOME\" > " + quote(PROJECT_ROOT + "/local.properties") + "; fi; " +
                         "test -f \"$ANDROID_HOME/platforms/android-35/android.jar\"; " +
-                        "echo 'ANDROID_SDK_READY'; echo ANDROID_HOME=\"$ANDROID_HOME\"; ls -lh \"$ANDROID_HOME/platforms/android-35/android.jar\"";
+                        "test -x \"$BT/aapt2\"; test -x \"$GRADLE_ROOT/bin/gradle\"; " +
+                        "echo 'ANDROID_SDK_READY'; echo ANDROID_HOME=\"$ANDROID_HOME\"; \"$GRADLE_ROOT/bin/gradle\" --version | head -n 8";
+            case SETUP_PHASE5A:
+                return scriptFor(Capability.SETUP_TOOLCHAIN) + "; " + scriptFor(Capability.SETUP_ANDROID_SDK);
             case GIT_STATUS:
                 return "set -eu; cd " + quote(REPO_ROOT) + "; git status --short --branch";
             case GIT_DIFF:
@@ -196,11 +216,19 @@ public final class TermuxCommandBridge {
             case TESTS:
                 return "set -eu; cd " + quote(PROJECT_ROOT) + "; " +
                         "export ANDROID_HOME=\"$HOME/Android/Sdk\"; export ANDROID_SDK_ROOT=\"$ANDROID_HOME\"; " +
-                        "gradle --no-daemon :app:testDebugUnitTest -Pandroid.aapt2FromMavenOverride=\"$PREFIX/bin/aapt2\"";
+                        "GRADLE=\"$HOME/.local/share/will-harness/gradle-8.10.2/bin/gradle\"; " +
+                        "[ -f \"$ANDROID_HOME/platforms/android-35/android.jar\" ] || { echo 'SDK_NOT_READY: Android SDK 35 missing. Run Phase 5A setup.'; exit 31; }; " +
+                        "[ -x \"$PREFIX/bin/aapt2\" ] || { echo 'AAPT2_NOT_READY: Run Phase 5A setup.'; exit 32; }; " +
+                        "[ -x \"$GRADLE\" ] || { echo 'GRADLE_NOT_READY: Gradle 8.10.2 missing. Run Phase 5A setup.'; exit 33; }; " +
+                        "\"$GRADLE\" --no-daemon :app:testDebugUnitTest -Pandroid.aapt2FromMavenOverride=\"$PREFIX/bin/aapt2\"";
             case BUILD:
                 return "set -eu; cd " + quote(PROJECT_ROOT) + "; " +
                         "export ANDROID_HOME=\"$HOME/Android/Sdk\"; export ANDROID_SDK_ROOT=\"$ANDROID_HOME\"; " +
-                        "gradle --no-daemon :app:assembleDebug -Pandroid.aapt2FromMavenOverride=\"$PREFIX/bin/aapt2\"; " +
+                        "GRADLE=\"$HOME/.local/share/will-harness/gradle-8.10.2/bin/gradle\"; " +
+                        "[ -f \"$ANDROID_HOME/platforms/android-35/android.jar\" ] || { echo 'SDK_NOT_READY: Android SDK 35 missing. Run Phase 5A setup.'; exit 31; }; " +
+                        "[ -x \"$PREFIX/bin/aapt2\" ] || { echo 'AAPT2_NOT_READY: Run Phase 5A setup.'; exit 32; }; " +
+                        "[ -x \"$GRADLE\" ] || { echo 'GRADLE_NOT_READY: Gradle 8.10.2 missing. Run Phase 5A setup.'; exit 33; }; " +
+                        "\"$GRADLE\" --no-daemon :app:assembleDebug -Pandroid.aapt2FromMavenOverride=\"$PREFIX/bin/aapt2\"; " +
                         "APK=app/build/outputs/apk/debug/app-debug.apk; test -f \"$APK\"; " +
                         "echo APK=$PWD/$APK; sha256sum \"$APK\"; ls -lh \"$APK\"";
             default:
@@ -217,7 +245,8 @@ public final class TermuxCommandBridge {
             case ENV_PROBE: return "Checks the phone-local developer environment.";
             case PREPARE_WORKSPACE: return "Creates the fixed Will Harness workspace and clones the allowed repository.";
             case SETUP_TOOLCHAIN: return "Installs the fixed ARM-native developer toolchain packages inside Termux.";
-            case SETUP_ANDROID_SDK: return "Installs Android SDK 35 and overlays ARM-native Android build tools.";
+            case SETUP_ANDROID_SDK: return "Installs Android SDK 35, ARM-native build tools, and pinned Gradle 8.10.2.";
+            case SETUP_PHASE5A: return "Performs the complete fixed Phase 5A phone-local build environment setup.";
             case GIT_STATUS: return "Reads git status in the fixed Will Harness workspace.";
             case GIT_DIFF: return "Reads git diff in the fixed Will Harness workspace.";
             case TESTS: return "Runs unit tests for the fixed Will Harness Android project.";
