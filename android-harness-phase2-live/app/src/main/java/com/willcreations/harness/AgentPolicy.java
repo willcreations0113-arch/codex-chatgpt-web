@@ -6,6 +6,7 @@ import java.util.Set;
 public final class AgentPolicy {
     private static final Set<String> ALLOWED_PACKAGES = Set.of(
             "com.willcreations.harness",
+            "com.willcreations.harness.stable",
             "com.android.settings"
     );
 
