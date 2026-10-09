@@ -120,6 +120,8 @@ public class MainActivity extends Activity implements
         Button openTermux = button("Termuxを開く", this::openTermux);
         Button termuxPermission = button("Termux実行権限の設定を開く", this::openRunCommandPermissionSettings);
         Button copyTermuxSetup = button("Termux初期設定コマンドをコピー", this::copyTermuxSetupCommand);
+        Button phase5aSetup = button("Phase 5A 一括セットアップ", () ->
+                runDeveloperCapability("Phase 5A setup", TermuxCommandBridge.Capability.SETUP_PHASE5A));
         Button devProbe = button("Termux環境チェック", () ->
                 runDeveloperCapability("Developer environment", TermuxCommandBridge.Capability.ENV_PROBE));
         Button devSetup = button("開発Toolchainセットアップ", () ->
@@ -181,7 +183,7 @@ public class MainActivity extends Activity implements
         add(root, copyLog);
 
         TextView phase5 = text();
-        phase5.setText("Phase 5 — Phone-local Developer Worker");
+        phase5.setText("Phase 5A — Phone-local Android Build");
         phase5.setTextSize(20);
         phase5.setPadding(0, dp(18), 0, dp(8));
         add(root, phase5);
@@ -189,6 +191,7 @@ public class MainActivity extends Activity implements
         add(root, openTermux);
         add(root, termuxPermission);
         add(root, copyTermuxSetup);
+        add(root, phase5aSetup);
         add(root, devProbe);
         add(root, devSetup);
         add(root, sdkSetup);
