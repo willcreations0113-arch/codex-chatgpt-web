@@ -152,7 +152,7 @@ public final class TermuxCommandBridge {
                         "aapt2 version 2>/dev/null || true; " +
                         "test -f \"$ANDROID_HOME/platforms/android-35/android.jar\" && echo SDK35=READY || echo SDK35=MISSING; " +
                         "test -x \"$ANDROID_HOME/build-tools/35.0.0/aapt2\" && echo BUILD_TOOLS_ARM=READY || echo BUILD_TOOLS_ARM=MISSING; " +
-                        "test -d " + quote(REPO_ROOT) + " && echo WORKSPACE=READY || echo WORKSPACE=MISSING";
+                        "test -d " + shellPath(REPO_ROOT) + " && echo WORKSPACE=READY || echo WORKSPACE=MISSING";
             case PREPARE_WORKSPACE:
                 return "set -eu; mkdir -p \"$HOME/will-harness-workspace\"; " +
                         "cd \"$HOME/will-harness-workspace\"; " +
@@ -203,18 +203,22 @@ public final class TermuxCommandBridge {
                         "grep -q '^android.aapt2FromMavenOverride=' \"$PROP\" && " +
                         "sed -i 's|^android.aapt2FromMavenOverride=.*|android.aapt2FromMavenOverride='\"$PREFIX\"'/bin/aapt2|' \"$PROP\" || " +
                         "echo 'android.aapt2FromMavenOverride='\"$PREFIX\"'/bin/aapt2' >> \"$PROP\"; " +
-                        "if [ -d " + quote(PROJECT_ROOT) + " ]; then echo 'sdk.dir='\"$ANDROID_HOME\" > " + quote(PROJECT_ROOT + "/local.properties") + "; fi; " +
+                        "if [ -d " + shellPath(PROJECT_ROOT) + " ]; then echo 'sdk.dir='\"$ANDROID_HOME\" > " + shellPath(PROJECT_ROOT + "/local.properties") + "; fi; " +
                         "test -f \"$ANDROID_HOME/platforms/android-35/android.jar\"; " +
                         "test -x \"$BT/aapt2\"; test -x \"$GRADLE_ROOT/bin/gradle\"; " +
                         "echo 'ANDROID_SDK_READY'; echo ANDROID_HOME=\"$ANDROID_HOME\"; \"$GRADLE_ROOT/bin/gradle\" --version | head -n 8";
             case SETUP_PHASE5A:
-                return scriptFor(Capability.SETUP_TOOLCHAIN) + "; " + scriptFor(Capability.SETUP_ANDROID_SDK);
+                return scriptFor(Capability.SETUP_TOOLCHAIN) + "; " +
+                        scriptFor(Capability.PREPARE_WORKSPACE) + "; " +
+                        scriptFor(Capability.SETUP_ANDROID_SDK);
             case GIT_STATUS:
-                return "set -eu; cd " + quote(REPO_ROOT) + "; git status --short --branch";
+                return "set -eu; cd " + shellPath(REPO_ROOT) + "; git status --short --branch";
             case GIT_DIFF:
-                return "set -eu; cd " + quote(REPO_ROOT) + "; git diff --no-ext-diff -- . ':!*.apk' | head -c 15000";
+                return "set -eu; cd " + shellPath(REPO_ROOT) + "; git diff --no-ext-diff -- . ':!*.apk' | head -c 15000";
             case TESTS:
-                return "set -eu; cd " + quote(PROJECT_ROOT) + "; " +
+                return "set -eu; " +
+                        "[ -d " + shellPath(PROJECT_ROOT) + " ] || { echo 'WORKSPACE_NOT_READY: Run Workspace準備 or Phase 5A setup.'; exit 30; }; " +
+                        "cd " + shellPath(PROJECT_ROOT) + "; " +
                         "export ANDROID_HOME=\"$HOME/Android/Sdk\"; export ANDROID_SDK_ROOT=\"$ANDROID_HOME\"; " +
                         "GRADLE=\"$HOME/.local/share/will-harness/gradle-8.10.2/bin/gradle\"; " +
                         "[ -f \"$ANDROID_HOME/platforms/android-35/android.jar\" ] || { echo 'SDK_NOT_READY: Android SDK 35 missing. Run Phase 5A setup.'; exit 31; }; " +
@@ -222,7 +226,9 @@ public final class TermuxCommandBridge {
                         "[ -x \"$GRADLE\" ] || { echo 'GRADLE_NOT_READY: Gradle 8.10.2 missing. Run Phase 5A setup.'; exit 33; }; " +
                         "\"$GRADLE\" --no-daemon :app:testDebugUnitTest -Pandroid.aapt2FromMavenOverride=\"$PREFIX/bin/aapt2\"";
             case BUILD:
-                return "set -eu; cd " + quote(PROJECT_ROOT) + "; " +
+                return "set -eu; " +
+                        "[ -d " + shellPath(PROJECT_ROOT) + " ] || { echo 'WORKSPACE_NOT_READY: Run Workspace準備 or Phase 5A setup.'; exit 30; }; " +
+                        "cd " + shellPath(PROJECT_ROOT) + "; " +
                         "export ANDROID_HOME=\"$HOME/Android/Sdk\"; export ANDROID_SDK_ROOT=\"$ANDROID_HOME\"; " +
                         "GRADLE=\"$HOME/.local/share/will-harness/gradle-8.10.2/bin/gradle\"; " +
                         "[ -f \"$ANDROID_HOME/platforms/android-35/android.jar\" ] || { echo 'SDK_NOT_READY: Android SDK 35 missing. Run Phase 5A setup.'; exit 31; }; " +
@@ -236,7 +242,10 @@ public final class TermuxCommandBridge {
         }
     }
 
-    private static String quote(String value) {
+    private static String shellPath(String value) {
+        if (value.startsWith("$HOME/")) {
+            return "\"$HOME/" + value.substring("$HOME/".length()).replace("\"", "\\\"") + "\"";
+        }
         return "'" + value.replace("'", "'\\''") + "'";
     }
 
